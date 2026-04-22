@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Builder and QA Output",
+  "type": "object",
+  "required": [
+    "implementation_plan",
+    "integration_notes",
+    "qa_checklist",
+    "qa_issues",
+    "final_summary_points"
+  ],
+  "properties": {
+    "implementation_plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "step_name",
+          "description"
+        ],
+        "properties": {
+          "step_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "integration_notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "from_agent",
+          "to_agent",
+          "note"
+        ],
+        "properties": {
+          "from_agent": {
+            "type": "string"
+          },
+          "to_agent": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "qa_checklist": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "qa_issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "issue",
+          "impact",
+          "mitigation"
+        ],
+        "properties": {
+          "issue": {
+            "type": "string"
+          },
+          "impact": {
+            "type": "string"
+          },
+          "mitigation": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "final_summary_points": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Question Power Designer Output",
+  "type": "object",
+  "required": [
+    "agent_role",
+    "core_principles",
+    "forbidden_actions",
+    "prompt_draft",
+    "few_shot_examples"
+  ],
+  "properties": {
+    "agent_role": {
+      "type": "string"
+    },
+    "core_principles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "forbidden_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "prompt_draft": {
+      "type": "object",
+      "required": [
+        "system_role",
+        "instruction_steps",
+        "response_style",
+        "output_format"
+      ],
+      "properties": {
+        "system_role": {
+          "type": "string"
+        },
+        "instruction_steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "response_style": {
+          "type": "string"
+        },
+        "output_format": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "few_shot_examples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "situation",
+          "user_question",
+          "assistant_guidance",
+          "improvement_focus"
+        ],
+        "properties": {
+          "situation": {
+            "type": "string"
+          },
+          "user_question": {
+            "type": "string"
+          },
+          "assistant_guidance": {
+            "type": "string"
+          },
+          "improvement_focus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

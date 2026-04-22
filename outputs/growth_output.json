@@ -1,0 +1,58 @@
+{
+  "scoring_rules": [
+    {
+      "criterion": "specificity",
+      "rule": "Give 1 point when the learner improves specificity in the revised question."
+    },
+    {
+      "criterion": "context",
+      "rule": "Give 1 point when the learner improves context in the revised question."
+    },
+    {
+      "criterion": "purpose",
+      "rule": "Give 1 point when the learner improves purpose in the revised question."
+    }
+  ],
+  "growth_levels": [
+    {
+      "level_name": "Starter",
+      "description": "Can notice that a question is too vague."
+    },
+    {
+      "level_name": "Builder",
+      "description": "Can improve at least one missing element in a question."
+    },
+    {
+      "level_name": "Question Coach",
+      "description": "Can produce a clear question with specificity, context, and purpose."
+    }
+  ],
+  "feedback_templates": [
+    {
+      "condition": "specificity improved",
+      "message": "Your question got stronger because it now names the exact topic."
+    },
+    {
+      "condition": "context improved",
+      "message": "Your question is clearer because it now explains the learning situation."
+    },
+    {
+      "condition": "purpose improved",
+      "message": "Your question is more useful because it says what kind of help you want."
+    }
+  ],
+  "result_message_rules": [
+    {
+      "section": "summary",
+      "rule": "Start by naming the strongest improvement in the revised question."
+    },
+    {
+      "section": "score",
+      "rule": "Show a simple score out of 3 based on the core criteria."
+    },
+    {
+      "section": "next_step",
+      "rule": "End with one actionable suggestion for the learner's next revision."
+    }
+  ]
+}

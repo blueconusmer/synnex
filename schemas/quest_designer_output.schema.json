@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Quest Designer Output",
+  "type": "object",
+  "required": [
+    "quest_types",
+    "quest_flow",
+    "sample_quests",
+    "interaction_patterns"
+  ],
+  "properties": {
+    "quest_types": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "quest_flow": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sample_quests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "title",
+          "objective",
+          "learner_prompt",
+          "expected_output"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "learner_prompt": {
+            "type": "string"
+          },
+          "expected_output": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "interaction_patterns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

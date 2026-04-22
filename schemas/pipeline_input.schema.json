@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Pipeline Input",
+  "type": "object",
+  "required": ["project_name", "project_goal", "target_user"],
+  "properties": {
+    "project_name": {
+      "type": "string"
+    },
+    "project_goal": {
+      "type": "string"
+    },
+    "current_stage": {
+      "type": "string"
+    },
+    "source_of_truth": {
+      "type": "string"
+    },
+    "target_user": {
+      "type": "string"
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

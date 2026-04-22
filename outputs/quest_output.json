@@ -1,0 +1,41 @@
+{
+  "quest_types": [
+    "Choose the better question",
+    "Find missing parts in a question",
+    "Rewrite a vague question",
+    "Create a question for a specific learning situation"
+  ],
+  "quest_flow": [
+    "Present a weak or incomplete learner question.",
+    "Ask the learner to identify what is missing.",
+    "Guide the learner to rewrite the question.",
+    "Explain why the revised question is stronger."
+  ],
+  "sample_quests": [
+    {
+      "title": "Make the science question more specific",
+      "objective": "Help the learner name the exact topic and difficulty point.",
+      "learner_prompt": "Rewrite this question for 중학생 질문 개선 챗봇 사용자: 'I do not get science.'",
+      "expected_output": "A revised question that names the science topic and what feels confusing."
+    },
+    {
+      "title": "Add context to a homework help question",
+      "objective": "Help the learner explain the current study situation.",
+      "learner_prompt": "Improve this question: 'Can someone help me with my assignment?'",
+      "expected_output": "A revised question that includes the subject, task type, and current obstacle."
+    },
+    {
+      "title": "Clarify the kind of help you want",
+      "objective": "Help the learner state the desired support clearly.",
+      "learner_prompt": "Rewrite this question: 'I am stuck in math.'",
+      "expected_output": "A revised question that says whether the learner wants an explanation, an example, or feedback on a question."
+    }
+  ],
+  "interaction_patterns": [
+    "Multiple-choice comparison",
+    "Checklist-based diagnosis",
+    "Short rewrite task",
+    "Scenario-based question building",
+    "Principle reflection using: Increase specificity in every learner question., Expose the learning context behind the question., Clarify what kind of help the learner wants."
+  ]
+}

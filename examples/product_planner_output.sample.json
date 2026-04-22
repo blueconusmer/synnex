@@ -1,0 +1,23 @@
+{
+  "problem_definition": "Students often ask vague questions, and the team first needs a minimum AI workflow that can define how question-quality support should be built.",
+  "project_goal": "Define a five-agent pipeline that can produce structured planning and design artifacts for the Question-Power Co-Learner.",
+  "target_user": "Middle school students who struggle to ask clear and useful questions.",
+  "mvp_scope": [
+    "Define the five-agent collaboration structure.",
+    "Produce structured outputs for each agent.",
+    "Support one sequential end-to-end artifact generation flow."
+  ],
+  "excluded_scope": [
+    "Production-ready chatbot implementation",
+    "External LLM API integration",
+    "Database and authentication",
+    "High-fidelity UI"
+  ],
+  "user_flow": [
+    "Clarify the project purpose and current stage.",
+    "Design the question-improvement agent behavior.",
+    "Design quests that help learners improve weak questions.",
+    "Map quest outcomes to growth feedback.",
+    "Integrate outputs into implementation and QA notes."
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Product Planner Output",
+  "type": "object",
+  "required": [
+    "problem_definition",
+    "project_goal",
+    "target_user",
+    "mvp_scope",
+    "excluded_scope",
+    "user_flow"
+  ],
+  "properties": {
+    "problem_definition": {
+      "type": "string"
+    },
+    "project_goal": {
+      "type": "string"
+    },
+    "target_user": {
+      "type": "string"
+    },
+    "mvp_scope": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "excluded_scope": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "user_flow": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

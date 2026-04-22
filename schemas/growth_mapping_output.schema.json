@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Growth Mapping Output",
+  "type": "object",
+  "required": [
+    "scoring_rules",
+    "growth_levels",
+    "feedback_templates",
+    "result_message_rules"
+  ],
+  "properties": {
+    "scoring_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "criterion",
+          "rule"
+        ],
+        "properties": {
+          "criterion": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "growth_levels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "level_name",
+          "description"
+        ],
+        "properties": {
+          "level_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "feedback_templates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "condition",
+          "message"
+        ],
+        "properties": {
+          "condition": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "result_message_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "section",
+          "rule"
+        ],
+        "properties": {
+          "section": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

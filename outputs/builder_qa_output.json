@@ -1,0 +1,61 @@
+{
+  "implementation_plan": [
+    {
+      "step_name": "Wire schema-based agent functions",
+      "description": "Call each agent in sequence and pass validated output models to the next agent."
+    },
+    {
+      "step_name": "Persist stage outputs as JSON",
+      "description": "Save each agent output with predictable file names for later review."
+    },
+    {
+      "step_name": "Generate a human-readable final summary",
+      "description": "Combine the main outputs into a markdown summary for quick inspection."
+    }
+  ],
+  "integration_notes": [
+    {
+      "from_agent": "Product Planner Agent",
+      "to_agent": "Question Power Designer Agent",
+      "note": "Use project_goal, target_user, and user_flow to shape the question-power role."
+    },
+    {
+      "from_agent": "Question Power Designer Agent",
+      "to_agent": "Quest Designer Agent",
+      "note": "Use core_principles and prompt_draft to design quests that reinforce specificity, context, and purpose."
+    },
+    {
+      "from_agent": "Quest Designer Agent",
+      "to_agent": "Growth Mapping Agent",
+      "note": "Map 4 quest types and learner actions to scoring and feedback rules."
+    },
+    {
+      "from_agent": "Growth Mapping Agent",
+      "to_agent": "Builder & QA Agent",
+      "note": "Integrate 3 scoring rules into the final implementation and QA plan."
+    }
+  ],
+  "qa_checklist": [
+    "Does each agent accept a schema-based input and return a schema-based output?",
+    "Can the pipeline run sequentially without external LLM services?",
+    "Are JSON outputs readable and ready for downstream use?",
+    "Do the outputs stay aligned with docs/project_context.md?"
+  ],
+  "qa_issues": [
+    {
+      "issue": "Prompt drafts are still rule-based placeholders.",
+      "impact": "Later stages may need richer prompt wording before real model integration.",
+      "mitigation": "Refine prompt_draft and few_shot_examples before adding LLM calls."
+    },
+    {
+      "issue": "Quest and growth rules are deterministic templates.",
+      "impact": "The pipeline validates structure more than content quality.",
+      "mitigation": "Add content review and optional validation checks in the next stage."
+    }
+  ],
+  "final_summary_points": [
+    "The project goal is focused on: 질문력 Co-Learner 제작용 AI 팀 설계",
+    "The question-power agent is grounded in 3 core principles.",
+    "The current design includes 3 sample quests and 3 scoring rules."
+  ]
+}

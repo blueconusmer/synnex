@@ -1,0 +1,25 @@
+{
+  "problem_definition": "The target user is 중학생 질문 개선 챗봇 사용자, and the team first needs a minimum AI workflow that can produce planning and design artifacts for the Question-Power Co-Learner before building the full service.",
+  "project_goal": "질문력 Co-Learner 제작용 AI 팀 설계",
+  "target_user": "중학생 질문 개선 챗봇 사용자",
+  "mvp_scope": [
+    "Define the five-agent collaboration structure.",
+    "Prepare structured input and output contracts for each agent.",
+    "Validate one sequential end-to-end execution flow.",
+    "Keep the scope small enough to validate within a 7-day sprint.",
+    "Emphasize a before/after question-improvement experience."
+  ],
+  "excluded_scope": [
+    "Production-ready chatbot implementation",
+    "External LLM API integration",
+    "Database and authentication",
+    "High-fidelity UI"
+  ],
+  "user_flow": [
+    "Clarify the project purpose and current stage.",
+    "Define how the question-improvement agent should behave.",
+    "Design structured quest interactions for learners.",
+    "Connect quest outcomes to growth and feedback rules.",
+    "Integrate outputs into implementation notes and QA checks."
+  ]
+}

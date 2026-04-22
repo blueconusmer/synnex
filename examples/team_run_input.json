@@ -1,0 +1,11 @@
+{
+  "project_name": "Synnex Question-Power Co-Learner",
+  "project_goal": "Create the minimum AI agent team skeleton that can produce structured project artifacts.",
+  "target_user": "Middle school students who struggle to ask clear and useful questions.",
+  "constraints": [
+    "Use docs/project_context.md as the single source of truth.",
+    "Do not remove existing files.",
+    "Do not add real external LLM API calls in this stage.",
+    "Focus on repository skeleton, structured outputs, and documentation."
+  ]
+}
