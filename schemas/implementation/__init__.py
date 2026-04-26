@@ -11,6 +11,8 @@ from schemas.implementation.common import (
 from schemas.implementation.content_interaction import (
     ContentInteractionInput,
     ContentInteractionOutput,
+    SemanticValidationItemResult,
+    SemanticValidationSummary,
 )
 from schemas.implementation.implementation_spec import (
     ImplementationSpec,
@@ -54,6 +56,8 @@ __all__ = [
     "RunTestAndFixInput",
     "RunTestAndFixOutput",
     "SchemaModel",
+    "SemanticValidationItemResult",
+    "SemanticValidationSummary",
     "SpecIntakeInput",
     "SpecIntakeOutput",
     "parse_markdown_spec",

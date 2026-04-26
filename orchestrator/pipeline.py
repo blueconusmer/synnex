@@ -146,8 +146,8 @@ class ImplementationPipeline:
         self._write_final_summary(
             spec_intake_output.service_summary,
             requirement_mapping_output.implementation_targets,
-            content_interaction_output.quiz_types,
-            len(content_interaction_output.items),
+            content_interaction_output,
+            run_test_and_fix_output,
             qa_alignment_output.final_summary_points,
         )
 
@@ -299,10 +299,21 @@ class ImplementationPipeline:
         self,
         service_summary: str,
         implementation_targets: list[str],
-        quiz_types: list[str],
-        total_items: int,
+        content_output,
+        run_test_and_fix_output,
         final_summary_points: list[str],
     ) -> None:
+        quiz_types = content_output.quiz_types
+        total_items = len(content_output.items)
+        semantic_summary = content_output.semantic_validation
+        streamlit_smoke_result = next(
+            (
+                check
+                for check in run_test_and_fix_output.check_results
+                if check.check_name == "streamlit_smoke"
+            ),
+            None,
+        )
         lines = [
             "# Final Summary",
             "",
@@ -321,6 +332,34 @@ class ImplementationPipeline:
             ]
         )
         lines.extend(f"- 유형: {quiz_type}" for quiz_type in quiz_types)
+        if semantic_summary is not None:
+            lines.extend(
+                [
+                    "",
+                    "## #12 검증 결과",
+                    f"- 총 8문항 여부: {'PASS' if semantic_summary.total_items == 8 else 'FAIL'}",
+                    (
+                        "- 4개 quiz_type × 각 2문항 여부: "
+                        f"{'PASS' if semantic_summary.quiz_type_distribution_valid else 'FAIL'}"
+                    ),
+                    (
+                        "- learning_dimension 허용값 여부: "
+                        f"{'PASS' if semantic_summary.learning_dimension_values_valid else 'FAIL'}"
+                    ),
+                    (
+                        "- semantic validator 통과 여부: "
+                        f"{'PASS' if semantic_summary.semantic_validator_passed else 'FAIL'}"
+                    ),
+                    (
+                        "- 재생성 발생 여부: "
+                        f"{'YES' if semantic_summary.regeneration_requested else 'NO'}"
+                    ),
+                    (
+                        "- app.py Streamlit smoke test 여부: "
+                        f"{'PASS' if streamlit_smoke_result and streamlit_smoke_result.passed else 'FAIL'}"
+                    ),
+                ]
+            )
         lines.extend(["", "## 최종 요약 포인트"])
         lines.extend(f"- {point}" for point in final_summary_points)
         (self.output_dir / "final_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

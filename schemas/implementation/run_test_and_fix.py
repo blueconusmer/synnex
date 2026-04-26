@@ -24,6 +24,10 @@ class RunTestAndFixInput(SchemaModel):
 
 class RunTestAndFixOutput(SchemaModel):
     agent: AgentLabel | None = Field(default=None, description="Agent label metadata.")
+    check_results: list[LocalCheckResult] = Field(
+        default_factory=list,
+        description="Local check outcomes that reached this stage.",
+    )
     checks_run: list[str] = Field(
         default_factory=list, description="Checks that were executed."
     )

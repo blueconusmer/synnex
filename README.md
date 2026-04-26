@@ -126,6 +126,10 @@ export OPENAI_BASE_URL="https://api.openai.com/v1"  # optional
   - `목적성`
   - `종합성`
 
+현재 active 파이프라인은 `quiz_contents.json` 생성 후 action-based semantic validator를 한 번 더 실행한다.
+이 단계에서는 문항이 실제로 요구하는 행동과 `quiz_type`이 맞는지, 해설/학습 포인트가 `learning_dimension`과 맞는지를 확인하고,
+필요할 때만 해당 문항을 1회 재생성한다.
+
 ## Streamlit MVP 실행 방법
 
 `app.py`는 `outputs/quiz_contents.json`을 읽는 최소 퀴즈 MVP다.

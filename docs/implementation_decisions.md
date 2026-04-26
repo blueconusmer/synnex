@@ -47,3 +47,9 @@
 - 결정: 콘텐츠 Agent 후처리에서 `correct_choice` 보정, 최소 3개 선택지 보정, answer/explanation/learning point 매핑 보정을 수행한 뒤 계약 검증을 실행한다.
 - 이유: 이번 단계는 교육 콘텐츠 자동 생성의 완전한 미세 품질보다, 8문항 구조와 MVP 실행 가능성을 검증하는 것이 더 중요하기 때문이다.
 - 영향 범위: `agents/implementation/content_interaction_agent.py`, live `quiz_contents.json` 안정성
+
+### 결정 8. #12에서는 action-based semantic validator와 문항 단위 1회 재생성을 사용
+- 맥락: 구조적으로는 맞는 JSON이 생성되더라도, 일부 live 문항은 `quiz_type`, `learning_dimension`, 실제 문항 행동이 어긋날 수 있었다.
+- 결정: `Content & Interaction Agent` 후처리에서 문항이 사용자에게 요구하는 행동을 기준으로 semantic validator를 실행하고, 로컬에서는 `quiz_type`과 `learning_dimension` 라벨만 보정한다. 본문 의미 수정이 필요한 경우에는 해당 문항만 1회 재생성한다.
+- 이유: #12의 목표는 새 기능 추가가 아니라 동적 퀴즈 콘텐츠의 의미 정합성을 보완하는 것이며, 질문 본문/정답/해설을 로컬 규칙으로 임의 수정하면 콘텐츠 신뢰도가 낮아질 수 있기 때문이다.
+- 영향 범위: `agents/implementation/content_interaction_agent.py`, `prompts/implementation/content_interaction.md`, `prompts/implementation/regenerate_quiz_item.md`, `outputs/quiz_contents.json`

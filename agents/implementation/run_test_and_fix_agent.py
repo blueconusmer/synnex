@@ -33,6 +33,7 @@ def run_run_test_and_fix_agent(
     if not failures:
         return RunTestAndFixOutput(
             agent=make_label("Run Test And Fix Agent", "실행·테스트·수정 Agent"),
+            check_results=input_model.check_results,
             checks_run=[check.check_name for check in input_model.check_results],
             failures=[],
             fixes_applied=["No fixes were needed because all local checks passed."],
@@ -51,6 +52,7 @@ def run_run_test_and_fix_agent(
         system_prompt="You analyze failed checks, propose minimal code fixes, and return structured JSON.",
     )
     output.agent = make_label("Run Test And Fix Agent", "실행·테스트·수정 Agent")
+    output.check_results = input_model.check_results
     if output.patched_files:
         output.should_retry_builder = True
     return output

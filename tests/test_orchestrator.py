@@ -58,4 +58,7 @@ def test_pipeline_with_fake_llm_generates_expected_outputs(tmp_path: Path) -> No
         "상황에 맞는 질문 만들기",
     }
     assert all("learning_dimension" in item for item in quiz_contents["items"])
+    assert quiz_contents["semantic_validation"]["semantic_validator_passed"] is True
+    assert quiz_contents["semantic_validation"]["quiz_type_distribution_valid"] is True
+    assert quiz_contents["semantic_validation"]["learning_dimension_values_valid"] is True
     assert (tmp_path / "app.py").exists()

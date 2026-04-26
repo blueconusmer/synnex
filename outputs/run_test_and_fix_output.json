@@ -3,6 +3,20 @@
     "english_name": "Run Test And Fix Agent",
     "korean_name": "실행·테스트·수정 Agent"
   },
+  "check_results": [
+    {
+      "check_name": "py_compile",
+      "command": "/mnt/c/Users/kusst/OneDrive/바탕 화면/25_취업준비/새싹X업스테이지/기업협업프로젝트/synnex/.venv/bin/python -m py_compile app.py",
+      "passed": true,
+      "details": "py_compile completed without output."
+    },
+    {
+      "check_name": "streamlit_smoke",
+      "command": "/mnt/c/Users/kusst/OneDrive/바탕 화면/25_취업준비/새싹X업스테이지/기업협업프로젝트/synnex/.venv/bin/python -m streamlit run app.py --server.headless true --server.port 8765",
+      "passed": true,
+      "details": "Streamlit smoke test produced no console output."
+    }
+  ],
   "checks_run": [
     "py_compile",
     "streamlit_smoke"

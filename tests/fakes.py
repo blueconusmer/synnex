@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import re
+
 from orchestrator.app_source import build_streamlit_app_source
 from schemas.implementation.content_interaction import ContentInteractionOutput
+from schemas.implementation.common import QuizItem
 from schemas.implementation.prototype_builder import PrototypeBuilderOutput
 from schemas.implementation.qa_alignment import QAAlignmentOutput
 from schemas.implementation.requirement_mapping import RequirementMappingOutput
@@ -250,6 +253,29 @@ class FakeLLMClient:
                 }
             )
 
+        if response_name == QuizItem.__name__:
+            item_id_match = re.search(r"유지할 item_id: `([^`]+)`", prompt)
+            quiz_type_match = re.search(r"목표 quiz_type: `([^`]+)`", prompt)
+            dimension_match = re.search(r"목표 learning_dimension: `([^`]+)`", prompt)
+            item_id = item_id_match.group(1) if item_id_match else "quiz-regenerated"
+            quiz_type = quiz_type_match.group(1) if quiz_type_match else "더 좋은 질문 고르기"
+            learning_dimension = (
+                dimension_match.group(1) if dimension_match else "구체성"
+            )
+            return response_model.model_validate(
+                {
+                    "item_id": item_id,
+                    "quiz_type": quiz_type,
+                    "learning_dimension": learning_dimension,
+                    "title": f"{quiz_type} 재생성 문항",
+                    "question": _build_question_for_type(quiz_type),
+                    "choices": _build_choices_for_type(quiz_type),
+                    "correct_choice": _build_correct_choice_for_type(quiz_type),
+                    "explanation": _build_explanation_for_dimension(learning_dimension),
+                    "learning_point": _build_learning_point_for_dimension(learning_dimension),
+                }
+            )
+
         if response_name == PrototypeBuilderOutput.__name__:
             return response_model.model_validate(
                 {
@@ -303,3 +329,65 @@ class FakeLLMClient:
             )
 
         raise AssertionError(f"Unexpected response model requested by fake client: {response_name}")
+
+
+def _build_question_for_type(quiz_type: str) -> str:
+    if quiz_type == "질문에서 빠진 요소 찾기":
+        return "질문 '이거 왜 그래?'에서 가장 먼저 보완해야 할 빠진 요소는 무엇일까?"
+    if quiz_type == "모호한 질문 고치기":
+        return "다음 중 모호한 질문을 더 구체적으로 고친 것은 무엇일까?"
+    if quiz_type == "상황에 맞는 질문 만들기":
+        return "다음 상황에서 가장 적절한 질문은 무엇일까? (과학 발표 준비)"
+    return "다음 중 더 좋은 질문은 무엇일까?"
+
+
+def _build_choices_for_type(quiz_type: str) -> list[str]:
+    if quiz_type == "질문에서 빠진 요소 찾기":
+        return ["맥락 정보", "색깔", "느낌"]
+    if quiz_type == "모호한 질문 고치기":
+        return [
+            "이거 알려 줘.",
+            "과학 숙제인데 화산이 폭발하는 이유를 단계별로 설명해 줘.",
+            "과학은 어렵다.",
+        ]
+    if quiz_type == "상황에 맞는 질문 만들기":
+        return [
+            "발표는 왜 해?",
+            "과학 발표 준비 중인데 화산이 폭발하는 원인을 한 문장으로 설명해 줄래?",
+            "화산은 무섭다.",
+        ]
+    return [
+        "이거 뭐야?",
+        "국어 숙제인데 이 문장이 왜 비유인지 예시와 함께 설명해 줘.",
+        "숙제가 많아.",
+    ]
+
+
+def _build_correct_choice_for_type(quiz_type: str) -> str:
+    if quiz_type == "질문에서 빠진 요소 찾기":
+        return "맥락 정보"
+    if quiz_type == "모호한 질문 고치기":
+        return "과학 숙제인데 화산이 폭발하는 이유를 단계별로 설명해 줘."
+    if quiz_type == "상황에 맞는 질문 만들기":
+        return "과학 발표 준비 중인데 화산이 폭발하는 원인을 한 문장으로 설명해 줄래?"
+    return "국어 숙제인데 이 문장이 왜 비유인지 예시와 함께 설명해 줘."
+
+
+def _build_explanation_for_dimension(dimension: str) -> str:
+    if dimension == "맥락성":
+        return "과목과 학습 상황이 드러나 질문의 맥락성이 높아집니다."
+    if dimension == "목적성":
+        return "원하는 도움의 형태가 드러나 질문의 목적성이 높아집니다."
+    if dimension == "종합성":
+        return "상황과 목적, 구체 정보가 함께 드러나 종합성이 높아집니다."
+    return "구체적인 조건과 대상이 드러나 질문의 구체성이 높아집니다."
+
+
+def _build_learning_point_for_dimension(dimension: str) -> str:
+    if dimension == "맥락성":
+        return "좋은 질문은 과목, 시간, 상황 같은 맥락 정보를 함께 담습니다."
+    if dimension == "목적성":
+        return "좋은 질문은 어떤 도움을 원하는지 목적을 분명히 씁니다."
+    if dimension == "종합성":
+        return "좋은 질문은 구체성, 맥락성, 목적성을 함께 고려합니다."
+    return "좋은 질문은 대상과 조건을 구체적으로 말합니다."
