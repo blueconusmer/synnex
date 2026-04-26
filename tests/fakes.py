@@ -213,6 +213,12 @@ class FakeLLMClient:
                     {
                         "item_id": item_id,
                         "quiz_type": quiz_type,
+                        "learning_dimension": (
+                            "구체성" if item_id in {"quiz-02"} else
+                            "맥락성" if item_id in {"quiz-01", "quiz-03", "quiz-05"} else
+                            "목적성" if item_id in {"quiz-04", "quiz-07", "quiz-08"} else
+                            "종합성"
+                        ),
                         "title": title,
                         "question": question,
                         "choices": choices,

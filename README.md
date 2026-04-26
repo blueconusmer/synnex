@@ -113,6 +113,19 @@ export OPENAI_BASE_URL="https://api.openai.com/v1"  # optional
 - `change_log.md`
 - `final_summary.md`
 
+`quiz_contents.json`의 현재 계약은 다음과 같다.
+
+- `quiz_type`: 상호작용 유형
+  - `더 좋은 질문 고르기`
+  - `질문에서 빠진 요소 찾기`
+  - `모호한 질문 고치기`
+  - `상황에 맞는 질문 만들기`
+- `learning_dimension`: 학습 차원
+  - `구체성`
+  - `맥락성`
+  - `목적성`
+  - `종합성`
+
 ## Streamlit MVP 실행 방법
 
 `app.py`는 `outputs/quiz_contents.json`을 읽는 최소 퀴즈 MVP다.
@@ -138,6 +151,15 @@ export OPENAI_BASE_URL="https://api.openai.com/v1"  # optional
 ```bash
 .venv/bin/python -m pytest
 ```
+
+## 안정성 메모
+
+현재 MVP 안정성을 위해 `Prototype Builder Agent / MVP 서비스 코드 생성 Agent`와
+`QA & Alignment Agent / 최종 검수·정합성 확인 Agent`는 deterministic한 후처리 방식을 사용한다.
+즉, 콘텐츠 생성은 live LLM으로 검증하되, `app.py` 템플릿 정규화와 QA summary는 검증된 계약을 우선 적용한다.
+
+이 선택은 Streamlit MVP와 outputs 구조를 안정적으로 재현하기 위한 것이며,
+후속 이슈에서는 builder/QA 단계까지 live generation 범위를 다시 확장할 수 있다.
 
 ## 구현 결정 기록
 

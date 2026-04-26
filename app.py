@@ -46,6 +46,9 @@ def render_quiz(data: dict[str, object]) -> None:
     answers: dict[str, str] = {}
     for item in items:
         st.markdown(f"### {item['title']}")
+        st.caption(
+            f"유형: {item['quiz_type']} | 학습 차원: {item.get('learning_dimension', '미지정')}"
+        )
         st.write(item["question"])
         answers[item["item_id"]] = st.radio(
             "선택지를 고르세요.",
@@ -71,6 +74,9 @@ def render_quiz(data: dict[str, object]) -> None:
             is_correct = selected == correct
             status = "정답" if is_correct else "오답"
             st.markdown(f"#### {item['title']} - {status}")
+            st.write(
+                f"- 유형: {item['quiz_type']} / 학습 차원: {item.get('learning_dimension', '미지정')}"
+            )
             st.write(f"- 내가 고른 답: {selected or '미응답'}")
             st.write(f"- 정답: {correct}")
             st.write(f"- 해설: {item['explanation']}")

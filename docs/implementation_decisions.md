@@ -39,6 +39,7 @@
 - 맥락: Solar Pro2 live 실행에서 고가치 생성 단계는 콘텐츠 생성이고, Builder와 QA는 이미 고정 계약이 강한 후처리 성격이어서 LLM 호출 지연과 timeout 영향을 크게 받았다.
 - 결정: `Prototype Builder Agent`는 검증된 Streamlit 템플릿과 runtime notes를 deterministic하게 생성하고, `QA & Alignment Agent`는 upstream outputs와 local checks를 기반으로 deterministic summary를 만든다.
 - 이유: 이번 이슈의 목표는 교육 서비스 구현팀의 실행 골격과 live 콘텐츠 생성 검증이며, builder/QA까지 모두 live text generation에 의존할 필요는 없기 때문이다.
+- 후속 방향: 후속 이슈에서 builder/QA 단계까지 live generation 범위를 다시 확장할 수 있다. 현재는 MVP 안정성을 우선한 선택이다.
 - 영향 범위: `agents/implementation/prototype_builder_agent.py`, `agents/implementation/qa_alignment_agent.py`, live runtime 안정성
 
 ### 결정 7. live 퀴즈 콘텐츠는 최소 계약 보정 후 검증

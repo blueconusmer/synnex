@@ -51,4 +51,11 @@ def test_pipeline_with_fake_llm_generates_expected_outputs(tmp_path: Path) -> No
     quiz_contents = json.loads((output_dir / "quiz_contents.json").read_text(encoding="utf-8"))
     assert len(quiz_contents["quiz_types"]) == 4
     assert len(quiz_contents["items"]) == 8
+    assert set(quiz_contents["quiz_types"]) == {
+        "더 좋은 질문 고르기",
+        "질문에서 빠진 요소 찾기",
+        "모호한 질문 고치기",
+        "상황에 맞는 질문 만들기",
+    }
+    assert all("learning_dimension" in item for item in quiz_contents["items"])
     assert (tmp_path / "app.py").exists()

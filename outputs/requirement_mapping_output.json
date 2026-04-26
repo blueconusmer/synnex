@@ -4,40 +4,35 @@
     "korean_name": "구현 요구사항 정리 Agent"
   },
   "implementation_targets": [
-    "Streamlit 기반 MVP 구현",
-    "8개 퀴즈 콘텐츠 생성 및 검증",
-    "JSON 데이터 연동 시스템 구축",
-    "질문력 향상 목적 부합성 검증"
+    "중학생의 질문력 향상을 위한 8문제 퀴즈 콘텐츠 구현",
+    "Streamlit 기반 MVP 애플리케이션 개발",
+    "필수 요소(문제/선택지/정답/해설/학습 포인트) 포함 검증",
+    "비기능 요구사항(로그인/DB/개인화 제외) 준수"
   ],
   "file_plan": [
     {
       "path": "outputs/quiz_contents.json",
-      "purpose": "4개 유형 × 2문제 = 8개 퀴즈 데이터 저장 (문제, 선택지, 정답, 해설, 학습 포인트 포함)",
+      "purpose": "4개 유형 × 2문제 = 8문제 퀴즈 데이터 저장",
       "producing_agent": "Quiz Content Generation Agent"
     },
     {
       "path": "app.py",
-      "purpose": "Streamlit 기반 퀴즈 풀이 앱 구현 (JSON 데이터 연동, 정답/해설 확인 기능 포함)",
-      "producing_agent": "Streamlit App Development Agent"
+      "purpose": "Streamlit 기반 퀴즈 실행 애플리케이션 구현",
+      "producing_agent": "Streamlit MVP Implementation Agent"
     },
     {
       "path": "qa_reports/quiz_validation.json",
-      "purpose": "8개 문제 필수 구성 요소 검증 결과 기록",
+      "purpose": "AI 생성 퀴즈 콘텐츠 검증 결과 기록",
       "producing_agent": "QA Validation Agent"
     },
     {
-      "path": "qa_reports/app_integration_test.log",
-      "purpose": "app.py와 quiz_contents.json 연동 테스트 결과 기록",
-      "producing_agent": "QA Validation Agent"
-    },
-    {
-      "path": "change_logs/requirement_changes.md",
-      "purpose": "요구사항 변경 이력 및 결정 사항 문서화",
+      "path": "docs/change_log.md",
+      "purpose": "개발 과정 변경사항 추적 문서화",
       "producing_agent": "Documentation Agent"
     },
     {
-      "path": "summary/implementation_summary.md",
-      "purpose": "최종 구현 결과 요약 및 검증 보고서",
+      "path": "docs/final_summary.md",
+      "purpose": "프로젝트 최종 결과 요약 보고서",
       "producing_agent": "Documentation Agent"
     }
   ],
@@ -55,17 +50,16 @@
   },
   "app_constraints": [
     "Streamlit v1.20+ 사용",
-    "JSON 데이터 기반 동적 문제 로딩 구현",
-    "정답 확인 시 해설 및 학습 포인트 표시",
-    "UI/UX 디자인 최소화 (기능 구현에 집중)",
-    "환경변수 기반 LLM 클라이언트 사용"
+    "quiz_contents.json 데이터 정상 로드 및 렌더링",
+    "문제 풀이 → 정답 확인 → 해설 표시 기능 구현",
+    "비기능 요구사항(로그인/DB/개인화) 미구현",
+    "실행 로그 stdout 출력"
   ],
   "test_strategy": [
-    "quiz_contents.json 스키마 검증 (8개 문제 필수 필드 확인)",
-    "app.py 실행 가능성 테스트 (Streamlit 서버 구동 확인)",
-    "문제-정답 매핑 정확성 검증",
-    "해설 내 질문력 향상 포인트 포함 여부 확인",
-    "JSON 데이터 변경 시 앱 반영 테스트",
-    "실행 로그 수집 및 QA 리포트 생성"
+    "JSON 스키마 유효성 검증 (8문제 × 5필드)",
+    "Streamlit 앱 실행 가능성 테스트 (streamlit run app.py)",
+    "문제 유형별 학습 포인트 연결성 검증",
+    "해설의 질문력 향상 포인트 포함 여부 확인",
+    "실행 로그 및 QA 결과 문서화"
   ]
 }

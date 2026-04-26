@@ -25,6 +25,9 @@ class QuizGenerationRequirements(SchemaModel):
 class QuizItem(SchemaModel):
     item_id: str = Field(description="Unique quiz item identifier.")
     quiz_type: str = Field(description="Quiz type or category for the item.")
+    learning_dimension: str = Field(
+        description="Question-power dimension targeted by the quiz item."
+    )
     title: str = Field(description="Short display title for the item.")
     question: str = Field(description="Question text shown to the learner.")
     choices: list[str] = Field(description="Multiple-choice options.")
