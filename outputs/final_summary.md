@@ -1,36 +1,23 @@
 # Final Summary
 
-## 전체 프로젝트 목표 요약
-- 프로젝트명: 시넥스 질문력 Co-Learner
-- 현재 목표: 질문력 Co-Learner 제작용 AI 팀 설계
-- 대상: 중학생 질문 개선 챗봇 사용자
-- 기간: 7일
-- 핵심 경험: 질문 Before / After 개선
+## 서비스 요약
+- 중학생의 질문력 향상을 위한 MVP 서비스로, 4개 유형(총 8문제)의 퀴즈 콘텐츠를 제공합니다. 각 문제는 문제, 선택지, 정답, 해설, 학습 포인트를 포함하며 Streamlit 기반 MVP로 구현됩니다. 로그인/DB 저장/개인화 추천 등은 제외됩니다.
 
-## Agent별 핵심 산출물 요약
-### Product Planner Agent
-- 문제 정의: The target user is 중학생 질문 개선 챗봇 사용자, and the team first needs a minimum AI workflow that can produce planning and design artifacts for the Question-Power Co-Learner before building the full service.
-- MVP 범위: Define the five-agent collaboration structure., Prepare structured input and output contracts for each agent., Validate one sequential end-to-end execution flow., Keep the scope small enough to validate within a 7-day sprint., Emphasize a before/after question-improvement experience.
+## 구현 요구사항 요약
+- 중학생의 질문력 향상을 위한 8문제 퀴즈 콘텐츠 구현
+- Streamlit 기반 MVP 애플리케이션 개발
+- 필수 요소(문제/선택지/정답/해설/학습 포인트) 포함 검증
+- 비기능 요구사항(로그인/DB/개인화 제외) 준수
 
-### Question Power Designer Agent
-- Agent 역할: Act as a question tutor for 중학생 질문 개선 챗봇 사용자 and help learners improve their questions before moving to direct answers.
-- 핵심 원칙: Increase specificity in every learner question., Expose the learning context behind the question., Clarify what kind of help the learner wants.
+## 콘텐츠 생성 요약
+- 퀴즈 유형 수: 4
+- 총 문제 수: 8
+- 유형: 더 좋은 질문 고르기
+- 유형: 질문에서 빠진 요소 찾기
+- 유형: 모호한 질문 고치기
+- 유형: 상황에 맞는 질문 만들기
 
-### Quest Designer Agent
-- 퀘스트 유형 수: 4
-- 대표 퀘스트: Make the science question more specific
-
-### Growth Mapping Agent
-- 점수 규칙 수: 3
-- 성장 단계 수: 3
-
-### Builder & QA Agent
-- 구현 계획 수: 3
-- QA 체크리스트 수: 4
-
-## 최종적으로 생성된 서비스 관련 산출물 요약
-- 질문력 Agent 역할 정의
-- 질문 개선 핵심 원칙 3개
-- 퀘스트 설계안 3개
-- 성장/피드백 규칙 3개
-- 구현 및 QA 요약 포인트 3개
+## 최종 요약 포인트
+- 교육 서비스 구현팀 6-Agent 파이프라인이 실행되었다.
+- 질문력 향상 퀴즈 4개 유형, 총 8문항이 생성되었다.
+- Streamlit MVP, 실행 로그, QA 결과가 함께 정리되었다.

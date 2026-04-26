@@ -1,0 +1,65 @@
+{
+  "agent": {
+    "english_name": "Requirement Mapping Agent",
+    "korean_name": "구현 요구사항 정리 Agent"
+  },
+  "implementation_targets": [
+    "중학생의 질문력 향상을 위한 8문제 퀴즈 콘텐츠 구현",
+    "Streamlit 기반 MVP 애플리케이션 개발",
+    "필수 요소(문제/선택지/정답/해설/학습 포인트) 포함 검증",
+    "비기능 요구사항(로그인/DB/개인화 제외) 준수"
+  ],
+  "file_plan": [
+    {
+      "path": "outputs/quiz_contents.json",
+      "purpose": "4개 유형 × 2문제 = 8문제 퀴즈 데이터 저장",
+      "producing_agent": "Quiz Content Generation Agent"
+    },
+    {
+      "path": "app.py",
+      "purpose": "Streamlit 기반 퀴즈 실행 애플리케이션 구현",
+      "producing_agent": "Streamlit MVP Implementation Agent"
+    },
+    {
+      "path": "qa_reports/quiz_validation.json",
+      "purpose": "AI 생성 퀴즈 콘텐츠 검증 결과 기록",
+      "producing_agent": "QA Validation Agent"
+    },
+    {
+      "path": "docs/change_log.md",
+      "purpose": "개발 과정 변경사항 추적 문서화",
+      "producing_agent": "Documentation Agent"
+    },
+    {
+      "path": "docs/final_summary.md",
+      "purpose": "프로젝트 최종 결과 요약 보고서",
+      "producing_agent": "Documentation Agent"
+    }
+  ],
+  "quiz_generation_requirements": {
+    "quiz_type_count": 4,
+    "items_per_type": 2,
+    "total_items": 8,
+    "required_fields": [
+      "문제 문장",
+      "선택지",
+      "정답",
+      "해설",
+      "학습 포인트"
+    ]
+  },
+  "app_constraints": [
+    "Streamlit v1.20+ 사용",
+    "quiz_contents.json 데이터 정상 로드 및 렌더링",
+    "문제 풀이 → 정답 확인 → 해설 표시 기능 구현",
+    "비기능 요구사항(로그인/DB/개인화) 미구현",
+    "실행 로그 stdout 출력"
+  ],
+  "test_strategy": [
+    "JSON 스키마 유효성 검증 (8문제 × 5필드)",
+    "Streamlit 앱 실행 가능성 테스트 (streamlit run app.py)",
+    "문제 유형별 학습 포인트 연결성 검증",
+    "해설의 질문력 향상 포인트 포함 여부 확인",
+    "실행 로그 및 QA 결과 문서화"
+  ]
+}
