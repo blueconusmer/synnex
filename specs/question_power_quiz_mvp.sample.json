@@ -1,0 +1,43 @@
+{
+  "service_name": "질문력 향상 퀴즈 서비스 MVP",
+  "team_identity": "교육 서비스 구현 전문 AI Agent 팀",
+  "service_purpose": "중학생의 질문력을 높이기 위한 퀴즈형 교육 서비스 MVP를 구현한다.",
+  "target_users": [
+    "중학생",
+    "질문이 모호하거나 정보가 빠진 학생"
+  ],
+  "learning_goals": [
+    "질문의 구체성을 높인다.",
+    "질문의 맥락성을 드러낸다.",
+    "질문의 목적성을 분명하게 만든다."
+  ],
+  "core_features": [
+    "4개 퀴즈 유형 제공",
+    "유형당 2문제씩 총 8문제 제공",
+    "문제, 선택지, 정답, 해설, 학습 포인트 제공",
+    "Streamlit MVP에서 문제 풀이와 결과 확인"
+  ],
+  "content_interaction_direction": [
+    "질문력 향상과 직접 연결된 문제만 생성",
+    "중학생이 이해할 수 있는 난이도 유지",
+    "정답 해설에 질문 개선 포인트를 포함"
+  ],
+  "excluded_scope": [
+    "로그인",
+    "DB 저장",
+    "장기 학습 기록",
+    "고도화 개인화"
+  ],
+  "expected_outputs": [
+    "Agent별 outputs",
+    "quiz_contents.json",
+    "Streamlit MVP app.py",
+    "QA report",
+    "change log"
+  ],
+  "acceptance_criteria": [
+    "총 8문제 생성",
+    "app.py가 quiz_contents.json을 읽음",
+    "실행 로그와 QA 결과가 남음"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "agent": {
+    "english_name": "Spec Intake Agent",
+    "korean_name": "구현 명세서 분석 Agent"
+  },
+  "team_identity": "교육 서비스 구현 전문 AI Agent 팀",
+  "service_summary": "중학생의 질문력 향상을 위한 MVP 서비스로, 4개 유형(총 8문제)의 퀴즈 콘텐츠를 제공합니다. 각 문제는 문제, 선택지, 정답, 해설, 학습 포인트를 포함하며 Streamlit 기반 MVP로 구현됩니다. 로그인/DB 저장/개인화 추천 등은 제외됩니다.",
+  "normalized_requirements": [
+    "중학생 대상 질문 구체성/맥락성/목적성 향상 교육 서비스 구현",
+    "4개 퀴즈 유형(유형당 2문제, 총 8문제) 제공",
+    "각 문제 구성: 문제 문장, 선택지, 정답, 해설, 학습 포인트",
+    "Streamlit 화면에서의 문제 풀이 및 정답/해설 확인 기능 구현",
+    "문제 난이도: 중학생 이해 가능 수준",
+    "해설 포함 사항: 정답 근거 및 질문력 향상 포인트",
+    "제외 범위: 로그인, DB 저장, 학습 기록, 디자인 시스템, 개인화 추천",
+    "runtime: 환경변수 기반 LLM client 사용"
+  ],
+  "delivery_expectations": [
+    "Agent별 구조화 outputs",
+    "outputs/quiz_contents.json (8문제 데이터 포함)",
+    "Streamlit MVP app.py (JSON 데이터 연동)",
+    "QA 리포트 및 실행 로그",
+    "변경사항 기록 문서",
+    "최종 요약 문서"
+  ],
+  "acceptance_focus": [
+    "8개 문제 생성 및 필수 구성 요소 검증",
+    "app.py와 quiz_contents.json의 정상 연동 확인",
+    "AI 생성 콘텐츠의 질문력 향상 목적 부합성 검증",
+    "실행 로그 및 QA 결과 문서화 확인"
+  ]
+}

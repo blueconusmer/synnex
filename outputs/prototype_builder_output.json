@@ -1,0 +1,23 @@
+{
+  "agent": {
+    "english_name": "Prototype Builder Agent",
+    "korean_name": "MVP 서비스 코드 생성 Agent"
+  },
+  "service_name": "중학생의",
+  "app_entrypoint": "app.py",
+  "generated_files": [
+    {
+      "path": "app.py",
+      "description": "Self-contained Streamlit MVP app generated from quiz contents.",
+      "content": "from __future__ import annotations\n\nimport json\nfrom pathlib import Path\n\nimport streamlit as st\n\nOUTPUT_PATH = Path(__file__).resolve().parent / \"outputs\" / \"quiz_contents.json\"\n\n\ndef load_quiz_contents() -> dict[str, object]:\n    if not OUTPUT_PATH.exists():\n        return {}\n    return json.loads(OUTPUT_PATH.read_text(encoding=\"utf-8\"))\n\n\ndef render_header(data: dict[str, object]) -> None:\n    st.set_page_config(page_title=\"교육 서비스 MVP 데모\", page_icon=\"📘\", layout=\"wide\")\n    st.title(\"질문력 향상 퀴즈 서비스 MVP\")\n    st.caption(\"교육 서비스 구현 전문 AI Agent 팀이 생성한 퀴즈 MVP 데모\")\n    st.write(\n        data.get(\n            \"service_summary\",\n            \"outputs/quiz_contents.json을 읽어 문제 풀이, 정답, 해설, 학습 포인트를 보여준다.\",\n        )\n    )\n\n\ndef render_sidebar(data: dict[str, object]) -> None:\n    with st.sidebar:\n        st.subheader(\"퀴즈 구성\")\n        for quiz_type in data.get(\"quiz_types\", []):\n            st.write(f\"- {quiz_type}\")\n        st.subheader(\"생성 통계\")\n        st.write(f\"총 문제 수: {len(data.get('items', []))}\")\n        st.write(f\"데이터 파일: {OUTPUT_PATH}\")\n\n\ndef render_quiz(data: dict[str, object]) -> None:\n    items = data.get(\"items\", [])\n    if not items:\n        st.warning(\"quiz_contents.json이 아직 없습니다. 먼저 파이프라인을 실행하세요.\")\n        st.stop()\n\n    st.subheader(\"퀴즈 풀기\")\n    answers: dict[str, str] = {}\n    for item in items:\n        st.markdown(f\"### {item['title']}\")\n        st.write(item[\"question\"])\n        answers[item[\"item_id\"]] = st.radio(\n            \"선택지를 고르세요.\",\n            item[\"choices\"],\n            index=None,\n            key=item[\"item_id\"],\n        )\n        st.divider()\n\n    if st.button(\"채점하기\", type=\"primary\"):\n        score = 0\n        for item in items:\n            selected = answers.get(item[\"item_id\"])\n            correct = item[\"correct_choice\"]\n            if selected == correct:\n                score += 1\n\n        st.success(f\"총 {len(items)}문제 중 {score}문제를 맞혔어요.\")\n        st.subheader(\"문항별 결과\")\n        for item in items:\n            selected = answers.get(item[\"item_id\"])\n            correct = item[\"correct_choice\"]\n            is_correct = selected == correct\n            status = \"정답\" if is_correct else \"오답\"\n            st.markdown(f\"#### {item['title']} - {status}\")\n            st.write(f\"- 내가 고른 답: {selected or '미응답'}\")\n            st.write(f\"- 정답: {correct}\")\n            st.write(f\"- 해설: {item['explanation']}\")\n            st.write(f\"- 학습 포인트: {item['learning_point']}\")\n            st.divider()\n\n\ndef main() -> None:\n    data = load_quiz_contents()\n    render_header(data)\n    render_sidebar(data)\n    render_quiz(data)\n\n\nmain()"
+    }
+  ],
+  "runtime_notes": [
+    "app.py는 outputs/quiz_contents.json을 읽는다.",
+    "streamlit run app.py로 실행한다."
+  ],
+  "integration_notes": [
+    "quiz_contents.json이 outputs/ 아래에 존재해야 한다.",
+    "app.py는 self-contained 템플릿으로 정규화된다."
+  ]
+}

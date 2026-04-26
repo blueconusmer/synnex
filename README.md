@@ -1,160 +1,147 @@
-# 시넥스 질문력 Co-Learner AI Agent Team Skeleton
+# 교육 서비스 구현 전문 AI Agent Team Skeleton
 
-이 저장소는 질문력 Co-Learner 서비스를 직접 완성하기 위한 저장소가 아니라, 그 서비스를 만들어낼 수 있는 **AI Agent 팀의 최소 구현 뼈대**를 정리하고 검증하기 위한 저장소다.
+이 저장소는 교육 서비스 구현 명세서를 입력받아 **교육 콘텐츠**, **Streamlit MVP 코드**, **실행 로그**, **QA 결과**를 생성하는 **교육 서비스 구현 전문 AI Agent 팀**의 실행 골격을 구현하기 위한 저장소다.
 
-기준 문서(single source of truth)는 [docs/project_context.md](docs/project_context.md)다. 프로젝트 목적, 현재 단계, 팀 구조, Agent 역할, 산출물 방향은 모두 이 문서를 따른다.
+기준 문서는 [docs/project_context.md](docs/project_context.md)다. 현재 active 구조는 6-Agent 구현팀 기준이며, 기존 질문력 기획용 skeleton은 legacy reference로 남겨 둔다.
 
-## 왜 지금은 1단계 팀빌딩에 집중하는가
+## 현재 검증 사례
 
-현재 단계는 `1단계: AI 팀빌딩`이다. 지금 중요한 것은 완성형 질문력 챗봇을 빠르게 만드는 것이 아니라, 짧은 일정 안에서 서비스 제작에 필요한 AI 협업 구조가 실제로 작동하는지 검증하는 것이다.
+현재 첫 검증 사례는 **질문력 향상 퀴즈 서비스 MVP**다.
 
-따라서 이 저장소는 아래에 집중한다.
+- 구현팀 정체성은 범용 교육 서비스 구현팀으로 유지한다.
+- 기본 입력은 [inputs/quiz_service_spec.md](inputs/quiz_service_spec.md)다.
+- 이번 MVP acceptance는 `4개 퀴즈 유형 × 각 2문제 = 총 8문제`다.
 
-- 역할 기반 Agent 팀 구조 정의
-- Agent별 입력값/출력값 뼈대 정리
-- 순차 실행형 파이프라인 구성
-- 최소 1회 end-to-end 실행 가능한 구조 준비
-- 서비스 제작용 산출물 문서화
+## 6-Agent 구조
 
-아래 항목은 현재 필수 범위가 아니다.
+1. `Spec Intake Agent / 구현 명세서 분석 Agent`
+2. `Requirement Mapping Agent / 구현 요구사항 정리 Agent`
+3. `Content & Interaction Agent / 교육 콘텐츠·상호작용 생성 Agent`
+4. `Prototype Builder Agent / MVP 서비스 코드 생성 Agent`
+5. `Run Test And Fix Agent / 실행·테스트·수정 Agent`
+6. `QA & Alignment Agent / 최종 검수·정합성 확인 Agent`
 
-- 실제 외부 LLM API 연동
-- 완성형 프로덕션 챗봇
-- 로그인, DB, 고도화 개인화
-- 높은 완성도의 UI
+## 전체 실행 흐름
 
-## 팀 구성 Agent 5개
+1. Markdown 구현 명세서를 읽는다.
+2. 구현 명세서 분석 Agent가 명세를 구조화한다.
+3. 구현 요구사항 정리 Agent가 구현 계약과 파일 계획을 만든다.
+4. 교육 콘텐츠·상호작용 생성 Agent가 퀴즈 콘텐츠를 만든다.
+5. MVP 서비스 코드 생성 Agent가 Streamlit `app.py`를 만든다.
+6. 실행·테스트·수정 Agent가 compile/smoke test 결과를 남긴다.
+7. 최종 검수·정합성 확인 Agent가 QA 리포트와 변경 로그를 만든다.
 
-### 1. Product Planner Agent
-
-프로젝트의 문제 정의, 목표, 타깃 사용자, MVP 범위, 제외 범위, 기본 사용자 흐름을 정리한다.
-
-### 2. Question Power Designer Agent
-
-질문력 Agent의 역할, 질문 개선 원칙, 금지사항, 프롬프트 초안, few-shot 예시 방향을 설계한다.
-
-### 3. Quest Designer Agent
-
-사용자가 질문을 더 좋게 만들기 위해 수행하는 퀘스트 유형, 흐름, 인터랙션 방식을 설계한다.
-
-### 4. Growth Mapping Agent
-
-퀘스트 결과를 질문력 성장, 점수, 피드백 메시지 구조로 연결하는 로직을 설계한다.
-
-### 5. Builder & QA Agent
-
-앞선 Agent들의 산출물을 통합하고, 구현 메모, QA 체크리스트, 리스크 정리 등 실제 제작 준비물을 만든다.
-
-## 전체 실행 흐름 개요
-
-현재 저장소는 순차 실행형 멀티에이전트 파이프라인을 기본 구현 방향으로 둔다.
-
-1. Product Planner Agent가 프로젝트 방향과 범위를 정리한다.
-2. Question Power Designer Agent가 질문력 Agent의 성격과 규칙을 설계한다.
-3. Quest Designer Agent가 사용자 상호작용 구조를 설계한다.
-4. Growth Mapping Agent가 성장 및 피드백 로직을 설계한다.
-5. Builder & QA Agent가 결과를 통합하고 구현/검수 산출물로 정리한다.
-
-현재 포함된 Python 골격은 실제 LLM 호출 없이 위 흐름을 구조화된 JSON 산출물로 흘려보내는 최소 데모를 제공한다.
-
-## 저장소 구조
+## 주요 경로
 
 ```text
 .
-├── agents/          # Agent 클래스와 순차 파이프라인 골격
-├── app.py           # Streamlit 데모 레이어
-├── docs/            # 기준 문서와 보조 설명 문서
-├── examples/        # 예시 입력값
-├── main.py          # 현재 기준 최소 end-to-end 실행 엔트리포인트
-├── outputs/         # 실행 산출물 저장 위치
-├── prompts/         # Agent별 프롬프트 초안 자리
-├── schemas/         # Agent 입출력 스키마
-├── pyproject.toml   # 최소 Python 프로젝트 설정
-└── run_pipeline.py  # 순차 파이프라인 데모 엔트리포인트
+├── inputs/                    # 원본 구현 명세서
+├── clients/                   # 환경변수 기반 LLM client
+├── agents/implementation/     # 6개 구현 Agent
+├── schemas/implementation/    # 구현팀 input/output schema
+├── prompts/implementation/    # Agent별 prompt
+├── orchestrator/              # 순차 실행 파이프라인
+├── outputs/                   # 산출물, 실행 로그, QA 결과
+├── main.py                    # active orchestrator entrypoint
+└── app.py                     # quiz_contents.json 기반 Streamlit MVP
 ```
 
 ## 설치 방법
 
-Python 3.11 이상 기준으로 아래처럼 가상환경을 만든 뒤 설치한다.
-
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -e .
+.venv/bin/python -m pip install -e .[dev]
 ```
 
-환경에 따라 `streamlit`가 바로 잡히지 않으면 아래를 한 번 더 실행한다.
+## `.env` 사용
+
+실제 키는 `.env`에 두는 편이 좋다. 저장소에는 [.env.example](.env.example)만 추적하고, `.env`는 `.gitignore`로 제외한다.
 
 ```bash
-.venv/bin/python -m pip install streamlit
+cp .env.example .env
 ```
 
-## 순차 실행 방법
+## 환경변수
 
-최소 end-to-end 파이프라인은 아래 명령으로 실행한다.
+runtime 실행은 OpenAI-compatible LLM client를 사용한다.
+
+### Upstage Solar Pro2 예시
+
+기본 권장 설정은 Upstage다. `UPSTAGE_API_KEY`가 있으면 client가 Upstage 경로를 우선 사용한다.
+
+```bash
+export UPSTAGE_API_KEY="..."
+export UPSTAGE_MODEL="solar-pro2"
+export UPSTAGE_BASE_URL="https://api.upstage.ai/v1"  # optional
+```
+
+`UPSTAGE_MODEL`을 생략하면 기본값으로 `solar-pro2`를 사용한다. 계정에서 다른 모델 slug를 써야 하면 그 값을 그대로 넣으면 된다.
+`main.py`는 실행 시 루트의 `.env` 파일이 있으면 자동으로 읽는다.
+
+### 일반 OpenAI-compatible 예시
+
+```bash
+export OPENAI_API_KEY="..."
+export OPENAI_MODEL="..."
+export OPENAI_BASE_URL="https://api.openai.com/v1"  # optional
+```
+
+## 파이프라인 실행 방법
 
 ```bash
 .venv/bin/python main.py
 ```
 
-실행 시 아래 순서로 Agent가 순차 실행된다.
+옵션 예시:
 
-1. `Product Planner Agent`
-2. `Question Power Designer Agent`
-3. `Quest Designer Agent`
-4. `Growth Mapping Agent`
-5. `Builder & QA Agent`
+```bash
+.venv/bin/python main.py --input-path inputs/quiz_service_spec.md --output-dir outputs
+```
 
 ## Outputs 확인 방법
 
 실행이 끝나면 `outputs/` 아래에 아래 파일이 생성된다.
 
-- `planner_output.json`
-- `question_output.json`
-- `quest_output.json`
-- `growth_output.json`
-- `builder_qa_output.json`
+- `spec_intake_output.json`
+- `requirement_mapping_output.json`
+- `quiz_contents.json`
+- `prototype_builder_output.json`
+- `run_test_and_fix_output.json`
+- `qa_alignment_output.json`
+- `execution_log.txt`
+- `qa_report.md`
+- `change_log.md`
 - `final_summary.md`
 
-기존 `run_pipeline.py`는 초기 데모 엔트리포인트로 남겨 두고, 현재 기준 최소 실행 파이프라인은 `main.py`를 사용한다.
+## Streamlit MVP 실행 방법
 
-## Streamlit 데모 실행 방법
+`app.py`는 `outputs/quiz_contents.json`을 읽는 최소 퀴즈 MVP다.
 
-Streamlit 데모는 기존 파이프라인 산출물을 읽어 질문 Before / After 개선 경험을 보여준다.
-
-먼저 파이프라인 산출물을 준비한다.
-
-```bash
-.venv/bin/python main.py
-```
-
-그 다음 Streamlit 앱을 실행한다.
+먼저 파이프라인으로 콘텐츠를 생성한 뒤 실행한다.
 
 ```bash
 .venv/bin/python -m streamlit run app.py
 ```
 
-## 데모가 보여주는 핵심 흐름
+화면에서 확인할 수 있는 핵심 흐름은 다음과 같다.
 
-1. 사용자가 모호한 질문을 입력한다.
-2. 챗봇이 질문 개선을 위해 한 번 되묻는다.
-3. 사용자가 추가 정보를 입력한다.
-4. 앱이 개선된 질문을 생성한다.
-5. 화면에 `Before 질문`, `After 질문`, `왜 더 좋아졌는지`, `칭찬 메시지`를 보여준다.
+1. 생성된 8개 문제 확인
+2. 객관식 답안 선택
+3. 채점 결과 확인
+4. 정답, 해설, 학습 포인트 확인
 
-현재 데모는 `outputs/planner_output.json`, `outputs/question_output.json`, `outputs/quest_output.json`, `outputs/growth_output.json`, `outputs/final_summary.md`를 읽어 설명과 기준을 보완하고, 부족한 부분은 rule-based fallback 로직으로 채운다.
+## 테스트
 
-## 향후 확장 가능성
+자동 테스트는 실제 LLM API를 호출하지 않는다.
+`tests/` 아래 fake/mock LLM client를 사용해 deterministic하게 검증한다.
 
-현재 저장소는 과설계 없이 최소 골격만 포함한다. 이후 단계에서 아래 방향으로 확장할 수 있다.
+```bash
+.venv/bin/python -m pytest
+```
 
-### 순차 파이프라인
+## 구현 결정 기록
 
-현재 구조를 유지하면서 Agent별 입력/출력 스키마를 더 엄격히 만들고, 실패 시 재실행 규칙이나 검증 단계를 추가할 수 있다.
+구현 중 기존 설계와 달라지는 판단은 아래에 기록한다.
 
-### Streamlit 데모
-
-Layer 2로 간단한 데모 UI를 붙여 사용자 입력과 Agent 산출물을 시각적으로 확인할 수 있다.
-
-### Orchestrator
-
-필요해지면 경량 오케스트레이터를 추가해 Agent 실행, 파일 저장, 검증, 요약을 좀 더 체계적으로 관리할 수 있다.
+- [docs/implementation_decisions.md](docs/implementation_decisions.md)
+- `outputs/change_log.md`
