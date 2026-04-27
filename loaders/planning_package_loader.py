@@ -70,7 +70,7 @@ def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
         content_spec=ContentSpec(
             content_types=_extract_content_types(data_schema),
             total_count=_extract_total_count(data_schema),
-            items_per_type=0,
+            items_per_type=_extract_items_per_type(data_schema),
             difficulty_levels=_extract_difficulty_levels(data_schema),
         ),
         evaluation_spec=EvaluationSpec(
@@ -114,6 +114,8 @@ def planning_package_to_implementation_spec(
         target_users=target_users,
         learning_goals=package.evaluation_spec.rubric_criteria,
         core_features=package.content_spec.content_types,
+        total_count=package.content_spec.total_count,
+        items_per_type=package.content_spec.items_per_type,
         content_interaction_direction=(
             package.interaction_spec.session_structure
             + package.interaction_spec.state_transitions
@@ -300,6 +302,26 @@ def _extract_total_count(data_schema: dict) -> int:
     max_length = session_fields.get("max_length")
     if min_length == max_length and isinstance(min_length, int):
         return min_length
+    return 0
+
+
+def _extract_items_per_type(data_schema: dict) -> int:
+    composition = (
+        data_schema.get("constraints", {}).get("session_composition", "")
+        or data_schema.get("definitions", {})
+        .get("Session", {})
+        .get("description", "")
+    )
+    bracket_match = re.search(r"\[(.+?)\]", composition)
+    if bracket_match:
+        segments = [part.strip() for part in bracket_match.group(1).split(",")]
+        main_count = sum(1 for segment in segments if segment == "main")
+        if main_count:
+            return main_count
+
+    main_count_match = re.search(r"main(?:\s*난이도)?\s*(\d+)개", composition)
+    if main_count_match:
+        return int(main_count_match.group(1))
     return 0
 
 
