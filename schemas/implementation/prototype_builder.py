@@ -4,6 +4,7 @@ from pydantic import Field
 
 from schemas.implementation.common import AgentLabel, GeneratedFile, SchemaModel
 from schemas.implementation.content_interaction import ContentInteractionOutput
+from schemas.implementation.implementation_spec import ImplementationSpec
 from schemas.implementation.requirement_mapping import RequirementMappingOutput
 from schemas.implementation.spec_intake import SpecIntakeOutput
 
@@ -17,6 +18,9 @@ class PrototypeBuilderInput(SchemaModel):
     )
     content_interaction_output: ContentInteractionOutput = Field(
         description="Generated content and interaction data for the MVP."
+    )
+    implementation_spec: ImplementationSpec = Field(
+        description="Runtime implementation configuration for the current service."
     )
 
 

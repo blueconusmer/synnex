@@ -25,10 +25,22 @@ class QuizGenerationRequirements(SchemaModel):
 class QuizItem(SchemaModel):
     item_id: str = Field(description="Unique quiz item identifier.")
     quiz_type: str = Field(description="Quiz type or category for the item.")
+    difficulty: str = Field(
+        default="",
+        description="Optional difficulty level such as intro or main.",
+    )
     learning_dimension: str = Field(
         description="Question-power dimension targeted by the quiz item."
     )
     title: str = Field(description="Short display title for the item.")
+    topic_context: str = Field(
+        default="",
+        description="Optional topic or learning context shown with the item.",
+    )
+    original_question: str = Field(
+        default="",
+        description="Optional original learner question used by Quest-style flows.",
+    )
     question: str = Field(description="Question text shown to the learner.")
     choices: list[str] = Field(description="Multiple-choice options.")
     correct_choice: str = Field(description="Correct answer string from the choices.")

@@ -99,3 +99,13 @@ def test_pipeline_with_planning_package_generates_service_named_contents(tmp_pat
     payload = json.loads(content_path.read_text(encoding="utf-8"))
     assert len(payload["items"]) == 3
     assert set(payload["quiz_types"]) == {"multiple_choice", "question_improvement"}
+    assert [item["quiz_type"] for item in payload["items"]] == [
+        "multiple_choice",
+        "question_improvement",
+        "question_improvement",
+    ]
+    app_source = (tmp_path / "app.py").read_text(encoding="utf-8")
+    assert "def api_session_start()" in app_source
+    assert "def api_quest_submit(user_response: Any)" in app_source
+    assert "def api_session_result()" in app_source
+    assert content_filename in app_source
