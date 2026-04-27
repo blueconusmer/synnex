@@ -1,3 +1,3 @@
-from orchestrator.pipeline import ImplementationPipeline
+"""Orchestrator package."""
 
-__all__ = ["ImplementationPipeline"]
+__all__: list[str] = []

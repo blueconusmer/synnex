@@ -34,15 +34,18 @@ def run_prototype_builder_agent(
             GeneratedFile(
                 path="app.py",
                 description="Self-contained Streamlit MVP app generated from quiz contents.",
-                content=build_streamlit_app_source(),
+                content=build_streamlit_app_source(
+                    "교육 서비스 MVP",
+                    "quiz_contents.json",
+                ),
             )
         ],
         runtime_notes=[
-            "app.py는 outputs/quiz_contents.json을 읽는다.",
+            "app.py는 outputs/서비스별 콘텐츠 파일을 읽는다.",
             "streamlit run app.py로 실행한다.",
         ],
         integration_notes=[
-            "quiz_contents.json이 outputs/ 아래에 존재해야 한다.",
+            "서비스별 콘텐츠 JSON이 outputs/ 아래에 존재해야 한다.",
             "app.py는 self-contained 템플릿으로 정규화된다.",
         ],
     )

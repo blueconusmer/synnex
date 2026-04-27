@@ -14,10 +14,10 @@ from agents.implementation.requirement_mapping_agent import run_requirement_mapp
 from agents.implementation.run_test_and_fix_agent import run_run_test_and_fix_agent
 from agents.implementation.spec_intake_agent import run_spec_intake_agent
 from clients.llm import LLMClient
+from orchestrator.app_source import build_content_filename, build_streamlit_app_source
 from schemas.implementation.common import LocalCheckResult, SchemaModel
 from schemas.implementation.content_interaction import ContentInteractionInput
-from schemas.implementation.implementation_spec import ImplementationSpec
-from schemas.implementation.implementation_spec import parse_markdown_spec
+from schemas.implementation.implementation_spec import ImplementationSpec, parse_markdown_spec
 from schemas.implementation.prototype_builder import PrototypeBuilderInput
 from schemas.implementation.qa_alignment import QAAlignmentInput
 from schemas.implementation.requirement_mapping import RequirementMappingInput
@@ -53,8 +53,9 @@ class ImplementationPipeline:
     def run(self) -> dict[str, SchemaModel]:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         spec = self.implementation_spec or parse_markdown_spec(self.spec_path)
+        content_filename = build_content_filename(spec.service_name)
         self._log("[INFO] Starting education-service implementation pipeline")
-        self._log(f"[INFO] Source spec: {spec.source_path}")
+        self._log(f"[INFO] Source spec: {self.spec_path}")
 
         spec_intake_output = self._run_stage(
             stage_title="Spec Intake Agent / 구현 명세서 분석 Agent",
@@ -76,11 +77,12 @@ class ImplementationPipeline:
 
         content_interaction_output = self._run_stage(
             stage_title="Content & Interaction Agent / 교육 콘텐츠·상호작용 생성 Agent",
-            output_name="quiz_contents.json",
+            output_name=content_filename,
             runner=lambda: run_content_interaction_agent(
                 ContentInteractionInput(
                     spec_intake_output=spec_intake_output,
                     requirement_mapping_output=requirement_mapping_output,
+                    implementation_spec=spec,
                 ),
                 self.llm_client,
             ),
@@ -97,6 +99,15 @@ class ImplementationPipeline:
                 ),
                 self.llm_client,
             ),
+        )
+        self._normalize_prototype_builder_output(
+            prototype_builder_output,
+            service_name=spec.service_name,
+            content_filename=content_filename,
+        )
+        self._save_json(
+            self.output_dir / "prototype_builder_output.json",
+            prototype_builder_output,
         )
         self._materialize_generated_files(prototype_builder_output.generated_files)
 
@@ -138,6 +149,7 @@ class ImplementationPipeline:
                     content_interaction_output=content_interaction_output,
                     prototype_builder_output=prototype_builder_output,
                     run_test_and_fix_output=run_test_and_fix_output,
+                    implementation_spec=spec,
                 ),
                 self.llm_client,
             ),
@@ -147,10 +159,11 @@ class ImplementationPipeline:
         self._write_change_log(qa_alignment_output.change_log_entries)
         self._write_qa_report(qa_alignment_output)
         self._write_final_summary(
+            spec,
             spec_intake_output.service_summary,
             requirement_mapping_output.implementation_targets,
-            content_interaction_output.quiz_types,
-            len(content_interaction_output.items),
+            content_interaction_output,
+            run_test_and_fix_output,
             qa_alignment_output.final_summary_points,
         )
 
@@ -178,6 +191,32 @@ class ImplementationPipeline:
             json.dumps(model.model_dump(mode="json"), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+    def _normalize_prototype_builder_output(
+        self,
+        output,
+        *,
+        service_name: str,
+        content_filename: str,
+    ) -> None:
+        output.service_name = service_name
+        output.runtime_notes = [
+            f"app.py는 outputs/{content_filename}을 읽는다.",
+            "streamlit run app.py로 실행한다.",
+        ]
+        output.integration_notes = [
+            f"{content_filename}이 outputs/ 아래에 존재해야 한다.",
+            "app.py는 self-contained 템플릿으로 정규화된다.",
+        ]
+        for generated_file in output.generated_files:
+            if Path(generated_file.path).name == "app.py":
+                generated_file.content = build_streamlit_app_source(
+                    service_name=service_name,
+                    content_filename=content_filename,
+                )
+                generated_file.description = (
+                    f"{service_name} 콘텐츠를 읽는 self-contained Streamlit MVP app."
+                )
 
     def _materialize_generated_files(self, generated_files) -> None:
         for generated_file in generated_files:
@@ -300,12 +339,21 @@ class ImplementationPipeline:
 
     def _write_final_summary(
         self,
+        implementation_spec: ImplementationSpec,
         service_summary: str,
         implementation_targets: list[str],
-        quiz_types: list[str],
-        total_items: int,
+        content_output,
+        run_test_and_fix_output,
         final_summary_points: list[str],
     ) -> None:
+        quiz_types = content_output.quiz_types
+        total_items = len(content_output.items)
+        semantic_summary = content_output.semantic_validation
+        streamlit_smoke_ran = "streamlit_smoke" in run_test_and_fix_output.checks_run
+        streamlit_smoke_failed = any(
+            failure.check_name == "streamlit_smoke"
+            for failure in run_test_and_fix_output.failures
+        )
         lines = [
             "# Final Summary",
             "",
@@ -324,6 +372,40 @@ class ImplementationPipeline:
             ]
         )
         lines.extend(f"- 유형: {quiz_type}" for quiz_type in quiz_types)
+        if semantic_summary is not None:
+            expected_type_count = len(
+                implementation_spec.core_features or quiz_types
+            )
+            lines.extend(
+                [
+                    "",
+                    "## #12 검증 결과",
+                    (
+                        f"- 총 {implementation_spec.total_count}문항 여부: "
+                        f"{'PASS' if semantic_summary.total_items == implementation_spec.total_count else 'FAIL'}"
+                    ),
+                    (
+                        f"- configured content type 수({expected_type_count}) 일치 여부: "
+                        f"{'PASS' if semantic_summary.quiz_type_distribution_valid else 'FAIL'}"
+                    ),
+                    (
+                        "- learning_dimension 허용값 여부: "
+                        f"{'PASS' if semantic_summary.learning_dimension_values_valid else 'FAIL'}"
+                    ),
+                    (
+                        "- semantic validator 통과 여부: "
+                        f"{'PASS' if semantic_summary.semantic_validator_passed else 'FAIL'}"
+                    ),
+                    (
+                        "- 재생성 발생 여부: "
+                        f"{'YES' if semantic_summary.regeneration_requested else 'NO'}"
+                    ),
+                    (
+                        "- app.py Streamlit smoke test 여부: "
+                        f"{'PASS' if streamlit_smoke_ran and not streamlit_smoke_failed else 'FAIL'}"
+                    ),
+                ]
+            )
         lines.extend(["", "## 최종 요약 포인트"])
         lines.extend(f"- {point}" for point in final_summary_points)
         (self.output_dir / "final_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

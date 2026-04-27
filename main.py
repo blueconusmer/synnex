@@ -21,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--input-package",
         default=None,
-        help="Path to a six-file planning package directory that will be adapted into the pipeline input schema.",
+        help="Path to a six-file planning package directory.",
     )
     parser.add_argument(
         "--output-dir",
@@ -45,18 +45,15 @@ def main() -> int:
     args = build_parser().parse_args()
     load_env_file(Path(".env"))
     llm_client = OpenAICompatibleClient.from_env()
-
+    input_path = Path(args.input_path)
     implementation_spec = None
-    spec_path = Path(args.input_path)
     if args.input_package:
-        package_dir = Path(args.input_package)
-        package = load_planning_package(package_dir)
-        implementation_spec = planning_package_to_implementation_spec(package, package_dir)
-        spec_path = package_dir
-
+        input_path = Path(args.input_package)
+        package = load_planning_package(input_path)
+        implementation_spec = planning_package_to_implementation_spec(package, input_path)
     pipeline = ImplementationPipeline(
         llm_client=llm_client,
-        spec_path=spec_path,
+        spec_path=input_path,
         workspace_dir=Path.cwd(),
         output_dir=Path(args.output_dir),
         implementation_spec=implementation_spec,

@@ -4,6 +4,7 @@ from pydantic import Field
 
 from schemas.implementation.common import AgentLabel, SchemaModel
 from schemas.implementation.content_interaction import ContentInteractionOutput
+from schemas.implementation.implementation_spec import ImplementationSpec
 from schemas.implementation.prototype_builder import PrototypeBuilderOutput
 from schemas.implementation.requirement_mapping import RequirementMappingOutput
 from schemas.implementation.run_test_and_fix import RunTestAndFixOutput
@@ -25,6 +26,10 @@ class QAAlignmentInput(SchemaModel):
     )
     run_test_and_fix_output: RunTestAndFixOutput = Field(
         description="Execution, test, and fix results."
+    )
+    implementation_spec: ImplementationSpec | None = Field(
+        default=None,
+        description="Runtime implementation configuration passed through the pipeline.",
     )
 
 
