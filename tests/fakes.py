@@ -110,6 +110,7 @@ class FakeLLMClient:
                 DEFAULT_LEARNING_DIMENSIONS
             )
             total_count = _extract_int_from_prompt(prompt, "total_count", default=8)
+            items_per_type = _extract_int_from_prompt(prompt, "items_per_type", default=2)
             service_name = _extract_scalar_from_prompt(prompt, "service_name") or "교육 서비스"
 
             if (
@@ -123,8 +124,12 @@ class FakeLLMClient:
             answer_key = {}
             explanations = {}
             learning_points = {}
-            for index in range(total_count):
-                quiz_type = content_types[index % len(content_types)] if content_types else "generic"
+            quiz_type_sequence = _build_quiz_type_sequence(
+                content_types,
+                total_count=total_count,
+                items_per_type=items_per_type,
+            )
+            for index, quiz_type in enumerate(quiz_type_sequence):
                 learning_dimension = (
                     learning_dimensions[index % len(learning_dimensions)]
                     if learning_dimensions
@@ -141,8 +146,11 @@ class FakeLLMClient:
                     {
                         "item_id": item_id,
                         "quiz_type": quiz_type,
+                        "difficulty": "intro" if quiz_type == "multiple_choice" else "main",
                         "learning_dimension": learning_dimension,
                         "title": title,
+                        "topic_context": _build_topic_context_for_type(quiz_type),
+                        "original_question": _build_original_question_for_type(quiz_type),
                         "question": question,
                         "choices": choices,
                         "correct_choice": correct,
@@ -186,8 +194,11 @@ class FakeLLMClient:
                 {
                     "item_id": item_id,
                     "quiz_type": quiz_type,
+                    "difficulty": "intro" if quiz_type == "multiple_choice" else "main",
                     "learning_dimension": learning_dimension,
                     "title": f"{quiz_type} 재생성 문항",
+                    "topic_context": _build_topic_context_for_type(quiz_type),
+                    "original_question": _build_original_question_for_type(quiz_type),
                     "question": _build_question_for_type(quiz_type),
                     "choices": _build_choices_for_type(quiz_type),
                     "correct_choice": _build_correct_choice_for_type(quiz_type),
@@ -376,6 +387,7 @@ class FakeLLMClient:
                 {
                     "item_id": item_id,
                     "quiz_type": quiz_type,
+                    "difficulty": "intro" if quiz_type in {"질문에서 빠진 요소 찾기", "더 좋은 질문 고르기"} else "main",
                     "learning_dimension": (
                         "구체성"
                         if item_id in {"quiz-02"}
@@ -384,6 +396,8 @@ class FakeLLMClient:
                         else "목적성"
                     ),
                     "title": title,
+                    "topic_context": _build_topic_context_for_type(quiz_type),
+                    "original_question": _build_original_question_for_type(quiz_type),
                     "question": question,
                     "choices": choices,
                     "correct_choice": correct,
@@ -419,7 +433,7 @@ def _build_question_for_type(quiz_type: str) -> str:
     if quiz_type == "multiple_choice":
         return "다음 중 더 좋은 질문으로 볼 수 있는 선택지는 무엇일까?"
     if quiz_type == "question_improvement":
-        return "모호한 질문을 더 구체적으로 고친 것은 무엇일까?"
+        return "원본 질문을 더 구체적이고 도움받기 쉬운 질문으로 다시 써보세요."
     if quiz_type == "질문에서 빠진 요소 찾기":
         return "질문 '이거 왜 그래?'에서 가장 먼저 보완해야 할 빠진 요소는 무엇일까?"
     if quiz_type == "모호한 질문 고치기":
@@ -475,6 +489,52 @@ def _build_correct_choice_for_type(quiz_type: str) -> str:
     if quiz_type == "상황에 맞는 질문 만들기":
         return "과학 발표 준비 중인데 화산이 폭발하는 원인을 한 문장으로 설명해 줄래?"
     return "국어 숙제인데 이 문장이 왜 비유인지 예시와 함께 설명해 줘."
+
+
+def _build_topic_context_for_type(quiz_type: str) -> str:
+    if quiz_type == "multiple_choice":
+        return "국어 비유 표현 학습"
+    if quiz_type == "question_improvement":
+        return "수학 일차방정식"
+    if quiz_type == "질문에서 빠진 요소 찾기":
+        return "과학 발표 준비"
+    if quiz_type == "모호한 질문 고치기":
+        return "사회 수행평가 준비"
+    if quiz_type == "상황에 맞는 질문 만들기":
+        return "글쓰기 과제"
+    return "학습 맥락"
+
+
+def _build_original_question_for_type(quiz_type: str) -> str:
+    if quiz_type == "multiple_choice":
+        return "비유가 뭔지 모르겠어"
+    if quiz_type == "question_improvement":
+        return "이거 어떻게 풀어"
+    if quiz_type == "질문에서 빠진 요소 찾기":
+        return "이거 왜 그래?"
+    if quiz_type == "모호한 질문 고치기":
+        return "왜 그랬어?"
+    if quiz_type == "상황에 맞는 질문 만들기":
+        return "도와줘."
+    return "이거 알려 줘."
+
+
+def _build_quiz_type_sequence(
+    content_types: list[str],
+    *,
+    total_count: int,
+    items_per_type: int,
+) -> list[str]:
+    if (
+        content_types == ["multiple_choice", "question_improvement"]
+        and total_count == 3
+        and items_per_type == 2
+    ):
+        return ["multiple_choice", "question_improvement", "question_improvement"]
+
+    if not content_types:
+        return ["generic"] * total_count
+    return [content_types[index % len(content_types)] for index in range(total_count)]
 
 
 def _build_explanation_for_dimension(dimension: str) -> str:

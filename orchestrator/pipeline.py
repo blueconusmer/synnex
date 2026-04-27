@@ -14,7 +14,7 @@ from agents.implementation.requirement_mapping_agent import run_requirement_mapp
 from agents.implementation.run_test_and_fix_agent import run_run_test_and_fix_agent
 from agents.implementation.spec_intake_agent import run_spec_intake_agent
 from clients.llm import LLMClient
-from orchestrator.app_source import build_content_filename, build_streamlit_app_source
+from orchestrator.app_source import build_content_filename
 from schemas.implementation.common import LocalCheckResult, SchemaModel
 from schemas.implementation.content_interaction import ContentInteractionInput
 from schemas.implementation.implementation_spec import ImplementationSpec, parse_markdown_spec
@@ -96,6 +96,7 @@ class ImplementationPipeline:
                     spec_intake_output=spec_intake_output,
                     requirement_mapping_output=requirement_mapping_output,
                     content_interaction_output=content_interaction_output,
+                    implementation_spec=spec,
                 ),
                 self.llm_client,
             ),
@@ -200,20 +201,21 @@ class ImplementationPipeline:
         content_filename: str,
     ) -> None:
         output.service_name = service_name
-        output.runtime_notes = [
-            f"app.py는 outputs/{content_filename}을 읽는다.",
-            "streamlit run app.py로 실행한다.",
-        ]
-        output.integration_notes = [
-            f"{content_filename}이 outputs/ 아래에 존재해야 한다.",
-            "app.py는 self-contained 템플릿으로 정규화된다.",
-        ]
+        output.runtime_notes = _dedupe_preserve_order(
+            [
+                *output.runtime_notes,
+                f"app.py는 outputs/{content_filename}을 읽는다.",
+                "streamlit run app.py로 실행한다.",
+            ]
+        )
+        output.integration_notes = _dedupe_preserve_order(
+            [
+                *output.integration_notes,
+                f"{content_filename}이 outputs/ 아래에 존재해야 한다.",
+            ]
+        )
         for generated_file in output.generated_files:
             if Path(generated_file.path).name == "app.py":
-                generated_file.content = build_streamlit_app_source(
-                    service_name=service_name,
-                    content_filename=content_filename,
-                )
                 generated_file.description = (
                     f"{service_name} 콘텐츠를 읽는 self-contained Streamlit MVP app."
                 )
@@ -413,3 +415,14 @@ class ImplementationPipeline:
     def _log(self, message: str) -> None:
         self.logs.append(message)
         print(message, flush=True)
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
