@@ -1,0 +1,262 @@
+{
+  "schema_version": "0.1",
+  "service_name": "Question Quest",
+  "description": "질문력 강화 퀘스트 서비스의 핵심 데이터 구조 정의. 모든 필드는 헌법(constitution.md)의 학습 목표 및 루브릭과 정합적이다.",
+
+  "definitions": {
+
+    "Quest": {
+      "description": "사용자가 수행하는 학습 과제 단위. 객관식 또는 질문 개선형 퀴즈로 구성된다.",
+      "fields": {
+        "quest_id": {
+          "type": "string",
+          "required": true,
+          "description": "퀘스트 고유 식별자",
+          "example": "quest_001"
+        },
+        "quest_type": {
+          "type": "enum",
+          "values": ["multiple_choice", "question_improvement"],
+          "required": true,
+          "description": "퀘스트 형식. multiple_choice는 입문 객관식, question_improvement는 본 단계 질문 개선형"
+        },
+        "difficulty": {
+          "type": "enum",
+          "values": ["intro", "main"],
+          "required": true,
+          "description": "intro는 입문, main은 본 단계. 세션 구성 시 intro 1개 + main 2개로 배치"
+        },
+        "topic_context": {
+          "type": "string",
+          "required": true,
+          "description": "퀘스트의 학습 맥락. 예: '국어 숙제', '수학 문제 풀이'",
+          "example": "국어 비유 표현 학습"
+        },
+        "original_question": {
+          "type": "string",
+          "required": true,
+          "description": "사용자에게 제시되는 모호한 원본 질문. LLM이 생성하거나 사전 정의된다.",
+          "example": "비유가 뭔지 모르겠어"
+        },
+        "options": {
+          "type": "array<string>",
+          "required": false,
+          "description": "객관식 선택지. quest_type이 multiple_choice일 때만 존재. 4개 항목 권장",
+          "example": ["비유 알려줘", "국어 숙제인데 '내 마음은 호수요'가 비유인 이유를 예시와 함께 설명해줘", "비유 예시", "비유 좀"]
+        },
+        "correct_option_index": {
+          "type": "integer",
+          "required": false,
+          "description": "객관식 정답 인덱스. quest_type이 multiple_choice일 때만 존재. 0부터 시작",
+          "example": 1
+        },
+        "explanation": {
+          "type": "string",
+          "required": false,
+          "description": "객관식 정답 해설. 왜 그 선택지가 좋은 질문인지 설명",
+          "example": "이 선택지가 가장 좋아요. 무엇을(비유), 왜(국어 숙제), 어떻게(예시와 함께 설명) 셋 다 들어있어요."
+        }
+      }
+    },
+
+    "Answer": {
+      "description": "사용자가 한 퀘스트에 대해 제출한 답변과 그에 대한 평가 결과",
+      "fields": {
+        "answer_id": {
+          "type": "string",
+          "required": true,
+          "description": "답변 고유 식별자",
+          "example": "ans_001"
+        },
+        "session_id": {
+          "type": "string",
+          "required": true,
+          "description": "이 답변이 속한 세션 식별자"
+        },
+        "quest_id": {
+          "type": "string",
+          "required": true,
+          "description": "이 답변이 속한 퀘스트 식별자"
+        },
+        "user_response": {
+          "type": "string | integer",
+          "required": true,
+          "description": "사용자 응답. quest_type이 multiple_choice이면 선택한 인덱스(integer), question_improvement이면 작성한 질문 텍스트(string)",
+          "example": "국어 숙제인데 '내 마음은 호수요'가 왜 비유인지 예시와 함께 설명해줘"
+        },
+        "evaluation": {
+          "type": "Evaluation",
+          "required": true,
+          "description": "평가 결과 객체. 객관식은 정답 여부, 개선형은 루브릭 판정"
+        },
+        "earned_score": {
+          "type": "integer",
+          "required": true,
+          "description": "이 답변으로 획득한 점수",
+          "valid_values": [5, 10, 20, 30],
+          "rules": {
+            "multiple_choice_correct": 20,
+            "multiple_choice_incorrect": 5,
+            "improvement_excellent": 30,
+            "improvement_good": 20,
+            "improvement_needs_work": 10
+          }
+        },
+        "submitted_at": {
+          "type": "datetime",
+          "required": true,
+          "description": "제출 시각"
+        }
+      }
+    },
+
+    "Evaluation": {
+      "description": "답변 평가 결과. 헌법의 루브릭(⑥)과 정합적이다.",
+      "fields": {
+        "evaluation_type": {
+          "type": "enum",
+          "values": ["correctness", "rubric"],
+          "required": true,
+          "description": "객관식은 correctness, 개선형은 rubric"
+        },
+        "is_correct": {
+          "type": "boolean",
+          "required": false,
+          "description": "객관식 정답 여부. evaluation_type이 correctness일 때만 존재"
+        },
+        "rubric_result": {
+          "type": "RubricResult",
+          "required": false,
+          "description": "루브릭 평가 결과. evaluation_type이 rubric일 때만 존재"
+        },
+        "feedback": {
+          "type": "string",
+          "required": true,
+          "description": "사용자에게 표시되는 피드백 메시지. 한두 문장 이내로 제한",
+          "max_length": 150,
+          "example": "질문이 아주 명확해졌어요! 무엇을 왜 어떻게 모두 들어 있어요."
+        }
+      }
+    },
+
+    "RubricResult": {
+      "description": "질문 개선형 답변에 대한 루브릭 판정 결과",
+      "fields": {
+        "specificity": {
+          "type": "enum",
+          "values": ["excellent", "good", "needs_work"],
+          "required": true,
+          "description": "구체성 판정 (우수/양호/미흡)"
+        },
+        "context": {
+          "type": "enum",
+          "values": ["excellent", "good", "needs_work"],
+          "required": true,
+          "description": "맥락성 판정 (우수/양호/미흡)"
+        },
+        "purpose": {
+          "type": "enum",
+          "values": ["excellent", "good", "needs_work"],
+          "required": true,
+          "description": "목적성 판정 (우수/양호/미흡)"
+        },
+        "overall": {
+          "type": "enum",
+          "values": ["excellent", "good", "needs_work"],
+          "required": true,
+          "description": "종합 판정. 도출 규칙: 3개 기준 모두 excellent이면 excellent, 1개 이상 needs_work이면 needs_work, 그 외는 good"
+        }
+      }
+    },
+
+    "Session": {
+      "description": "사용자의 한 학습 세션. 3개 퀘스트(intro 1 + main 2)로 구성된다.",
+      "fields": {
+        "session_id": {
+          "type": "string",
+          "required": true,
+          "description": "세션 고유 식별자",
+          "example": "session_001"
+        },
+        "user_id": {
+          "type": "string",
+          "required": true,
+          "description": "사용자 식별자. MVP에서는 임시 익명 ID 사용"
+        },
+        "quest_ids": {
+          "type": "array<string>",
+          "required": true,
+          "description": "이 세션에 배치된 3개 퀘스트의 ID 목록. [intro_quest, main_quest, main_quest] 순서",
+          "min_length": 3,
+          "max_length": 3
+        },
+        "session_status": {
+          "type": "enum",
+          "values": ["in_progress", "completed"],
+          "required": true,
+          "description": "세션 상태. 3개 퀘스트 모두 제출 완료되면 completed로 전환"
+        },
+        "session_score": {
+          "type": "integer",
+          "required": true,
+          "description": "이번 세션에서 획득한 총 점수",
+          "default": 0
+        },
+        "started_at": {
+          "type": "datetime",
+          "required": true
+        },
+        "completed_at": {
+          "type": "datetime",
+          "required": false,
+          "description": "세션 완료 시각. session_status가 completed일 때만 값이 있음"
+        }
+      }
+    },
+
+    "UserProgress": {
+      "description": "사용자의 누적 점수와 현재 등급. 점수는 떨어지지 않고 누적만 된다.",
+      "fields": {
+        "user_id": {
+          "type": "string",
+          "required": true
+        },
+        "cumulative_score": {
+          "type": "integer",
+          "required": true,
+          "description": "전체 누적 점수. 떨어지지 않음.",
+          "default": 0
+        },
+        "current_grade": {
+          "type": "enum",
+          "values": ["bronze", "silver", "gold", "platinum"],
+          "required": true,
+          "description": "현재 등급. cumulative_score 기반으로 자동 결정",
+          "default": "bronze"
+        },
+        "completed_session_count": {
+          "type": "integer",
+          "required": true,
+          "default": 0
+        }
+      }
+    },
+
+    "GradeThreshold": {
+      "description": "등급 임계점 정의. 헌법 ⑦-4와 정합.",
+      "values": {
+        "bronze": { "min_score": 0, "max_score": 99 },
+        "silver": { "min_score": 100, "max_score": 299 },
+        "gold": { "min_score": 300, "max_score": 599 },
+        "platinum": { "min_score": 600, "max_score": null }
+      }
+    }
+  },
+
+  "constraints": {
+    "session_composition": "한 세션은 반드시 intro 난이도 1개 + main 난이도 2개로 구성된다. 순서는 [intro, main, main].",
+    "score_monotonicity": "cumulative_score는 단조 증가한다. 어떤 경우에도 감소하지 않는다.",
+    "feedback_length": "Evaluation.feedback은 150자 이하로 제한한다.",
+    "improvement_minimum_score": "질문 개선형 퀘스트는 미흡 판정이라도 최소 10점을 부여한다 (위축 방지)."
+  }
+}

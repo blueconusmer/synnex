@@ -16,6 +16,7 @@ from agents.implementation.spec_intake_agent import run_spec_intake_agent
 from clients.llm import LLMClient
 from schemas.implementation.common import LocalCheckResult, SchemaModel
 from schemas.implementation.content_interaction import ContentInteractionInput
+from schemas.implementation.implementation_spec import ImplementationSpec
 from schemas.implementation.implementation_spec import parse_markdown_spec
 from schemas.implementation.prototype_builder import PrototypeBuilderInput
 from schemas.implementation.qa_alignment import QAAlignmentInput
@@ -34,6 +35,7 @@ class ImplementationPipeline:
         spec_path: Path,
         workspace_dir: Path,
         output_dir: Path,
+        implementation_spec: ImplementationSpec | None = None,
         app_target_path: Path | None = None,
         python_executable: str | None = None,
         enable_streamlit_smoke: bool = True,
@@ -42,6 +44,7 @@ class ImplementationPipeline:
         self.spec_path = spec_path
         self.workspace_dir = workspace_dir
         self.output_dir = output_dir
+        self.implementation_spec = implementation_spec
         self.app_target_path = app_target_path or workspace_dir / "app.py"
         self.python_executable = python_executable or sys.executable
         self.enable_streamlit_smoke = enable_streamlit_smoke
@@ -49,9 +52,9 @@ class ImplementationPipeline:
 
     def run(self) -> dict[str, SchemaModel]:
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        spec = parse_markdown_spec(self.spec_path)
+        spec = self.implementation_spec or parse_markdown_spec(self.spec_path)
         self._log("[INFO] Starting education-service implementation pipeline")
-        self._log(f"[INFO] Source spec: {self.spec_path}")
+        self._log(f"[INFO] Source spec: {spec.source_path}")
 
         spec_intake_output = self._run_stage(
             stage_title="Spec Intake Agent / 구현 명세서 분석 Agent",
