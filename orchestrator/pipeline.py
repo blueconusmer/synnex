@@ -116,6 +116,15 @@ class ImplementationPipeline:
             self.output_dir / "prototype_builder_output.json",
             prototype_builder_output,
         )
+        if not prototype_builder_output.is_supported:
+            return self._finish_unsupported_framework(
+                spec=spec,
+                spec_intake_output=spec_intake_output,
+                requirement_mapping_output=requirement_mapping_output,
+                content_interaction_output=content_interaction_output,
+                prototype_builder_output=prototype_builder_output,
+            )
+
         self._materialize_generated_files(prototype_builder_output.generated_files)
 
         local_checks = self._run_local_checks()
@@ -208,6 +217,9 @@ class ImplementationPipeline:
         content_filename: str,
     ) -> None:
         output.service_name = service_name
+        if not output.is_supported:
+            return
+
         output.runtime_notes = _dedupe_preserve_order(
             [
                 *output.runtime_notes,
@@ -226,6 +238,41 @@ class ImplementationPipeline:
                 generated_file.description = (
                     f"{service_name} 콘텐츠를 읽는 self-contained Streamlit MVP app."
                 )
+
+    def _finish_unsupported_framework(
+        self,
+        *,
+        spec: ImplementationSpec,
+        spec_intake_output,
+        requirement_mapping_output,
+        content_interaction_output,
+        prototype_builder_output,
+    ) -> dict[str, SchemaModel]:
+        reason = (
+            prototype_builder_output.unsupported_reason
+            or "Requested target_framework is not supported yet."
+        )
+        self._log(
+            "[UNSUPPORTED] "
+            f"target_framework={prototype_builder_output.target_framework}: {reason}"
+        )
+        self._write_execution_log()
+        self._write_unsupported_change_log(prototype_builder_output)
+        self._write_unsupported_qa_report(prototype_builder_output)
+        self._write_unsupported_final_summary(
+            spec=spec,
+            service_summary=spec_intake_output.service_summary,
+            implementation_targets=requirement_mapping_output.implementation_targets,
+            content_output=content_interaction_output,
+            prototype_builder_output=prototype_builder_output,
+        )
+        return {
+            "input_intake_result": self.input_intake_result,
+            "spec_intake_output": spec_intake_output,
+            "requirement_mapping_output": requirement_mapping_output,
+            "quiz_contents": content_interaction_output,
+            "prototype_builder_output": prototype_builder_output,
+        }
 
     def _materialize_generated_files(self, generated_files) -> None:
         for generated_file in generated_files:
@@ -366,6 +413,90 @@ class ImplementationPipeline:
         else:
             lines.extend(f"- {entry}" for entry in entries)
         (self.output_dir / "change_log.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def _write_unsupported_change_log(self, prototype_builder_output) -> None:
+        lines = [
+            "# Change Log",
+            "",
+            (
+                "- Prototype Builder stopped before materialization because "
+                f"target_framework={prototype_builder_output.target_framework} is unsupported."
+            ),
+            f"- Reason: {prototype_builder_output.unsupported_reason}",
+            "- Local checks, Run Test And Fix, and QA Alignment stages were not executed.",
+        ]
+        (self.output_dir / "change_log.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def _write_unsupported_qa_report(self, prototype_builder_output) -> None:
+        lines = [
+            "# QA Report",
+            "",
+            "- Alignment status: UNSUPPORTED",
+        ]
+        if self.input_intake_result is not None:
+            lines.extend(
+                [
+                    "",
+                    "## Input Intake",
+                    f"- Status: {self.input_intake_result.status.value}",
+                    f"- Auto fixes: {len(self.input_intake_result.auto_fixes)}",
+                    f"- Planning review items: {len(self.input_intake_result.planning_review_items)}",
+                    f"- Issues: {len(self.input_intake_result.issues)}",
+                ]
+            )
+        lines.extend(
+            [
+                "",
+                "## Unsupported Framework",
+                f"- target_framework: {prototype_builder_output.target_framework}",
+                f"- reason: {prototype_builder_output.unsupported_reason}",
+                "- local checks: NOT RUN",
+            ]
+        )
+        (self.output_dir / "qa_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def _write_unsupported_final_summary(
+        self,
+        *,
+        spec: ImplementationSpec,
+        service_summary: str,
+        implementation_targets: list[str],
+        content_output,
+        prototype_builder_output,
+    ) -> None:
+        lines = [
+            "# Final Summary",
+            "",
+            "## 서비스 요약",
+            f"- {service_summary}",
+            "",
+            "## Framework 결과",
+            f"- target_framework: {prototype_builder_output.target_framework}",
+            "- 지원 여부: UNSUPPORTED",
+            f"- 이유: {prototype_builder_output.unsupported_reason}",
+            "- app.py materialize: NOT RUN",
+            "- local checks: NOT RUN",
+        ]
+        if self.input_intake_result is not None:
+            lines.extend(
+                [
+                    "",
+                    "## Input Intake 결과",
+                    f"- 상태: {self.input_intake_result.status.value}",
+                    f"- target_framework: {self.input_intake_result.runtime_config.target_framework if self.input_intake_result.runtime_config else spec.target_framework}",
+                ]
+            )
+        lines.extend(["", "## 구현 요구사항 요약"])
+        lines.extend(f"- {target}" for target in implementation_targets)
+        lines.extend(
+            [
+                "",
+                "## 콘텐츠 생성 요약",
+                f"- 퀴즈 유형 수: {len(content_output.quiz_types)}",
+                f"- 총 문제 수: {len(content_output.items)}",
+            ]
+        )
+        (self.output_dir / "final_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _write_qa_report(self, qa_output) -> None:
         lines = [

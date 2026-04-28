@@ -1,4 +1,4 @@
-"""Prototype builder agent for generating the Streamlit MVP application files."""
+"""Prototype builder agent for generating MVP application files."""
 
 from __future__ import annotations
 
@@ -16,6 +16,11 @@ from schemas.implementation.prototype_builder import (
 from agents.implementation.helpers import dump_model, load_prompt_text, make_label
 
 
+SUPPORTED_TARGET_FRAMEWORKS = {"streamlit"}
+KNOWN_UNSUPPORTED_TARGET_FRAMEWORKS = {"react", "fastapi", "nextjs"}
+KNOWN_TARGET_FRAMEWORKS = SUPPORTED_TARGET_FRAMEWORKS | KNOWN_UNSUPPORTED_TARGET_FRAMEWORKS
+
+
 def run_prototype_builder_agent(
     input_model: PrototypeBuilderInput,
     llm_client: LLMClient,
@@ -27,6 +32,26 @@ def run_prototype_builder_agent(
 
     spec = input_model.implementation_spec
     service_name = spec.service_name or input_model.spec_intake_output.service_summary.split(" ")[0]
+    target_framework = _normalize_target_framework(spec.target_framework)
+    if target_framework not in SUPPORTED_TARGET_FRAMEWORKS:
+        unsupported_reason = _build_unsupported_reason(target_framework)
+        return PrototypeBuilderOutput(
+            agent=make_label(
+                "Prototype Builder Agent",
+                "MVP 서비스 코드 생성 Agent",
+            ),
+            service_name=service_name or "교육 서비스 MVP",
+            target_framework=target_framework,
+            is_supported=False,
+            unsupported_reason=unsupported_reason,
+            app_entrypoint="",
+            generated_files=[],
+            runtime_notes=[unsupported_reason],
+            integration_notes=[
+                "React/FastAPI/Next.js 생성은 후속 이슈에서 별도 Builder로 확장한다.",
+            ],
+        )
+
     content_filename = build_content_filename(service_name)
     app_source = _build_app_source(input_model)
     runtime_notes = [
@@ -51,6 +76,9 @@ def run_prototype_builder_agent(
             "MVP 서비스 코드 생성 Agent",
         ),
         service_name=service_name or "교육 서비스 MVP",
+        target_framework=target_framework,
+        is_supported=True,
+        unsupported_reason="",
         app_entrypoint="app.py",
         generated_files=[
             GeneratedFile(
@@ -91,6 +119,25 @@ def _build_app_source(input_model: PrototypeBuilderInput) -> str:
     return build_streamlit_app_source(
         service_name=service_name,
         content_filename=content_filename,
+    )
+
+
+def _normalize_target_framework(value: str) -> str:
+    normalized = (value or "streamlit").strip().lower()
+    return normalized or "streamlit"
+
+
+def _build_unsupported_reason(target_framework: str) -> str:
+    if target_framework in KNOWN_UNSUPPORTED_TARGET_FRAMEWORKS:
+        return (
+            f"target_framework '{target_framework}' is not supported yet. "
+            "Currently supported: streamlit"
+        )
+
+    known_values = ", ".join(sorted(KNOWN_TARGET_FRAMEWORKS))
+    return (
+        f"target_framework '{target_framework}' is not recognized. "
+        f"Known values: {known_values}."
     )
 
 

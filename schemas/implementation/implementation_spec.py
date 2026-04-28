@@ -11,6 +11,10 @@ from schemas.implementation.common import SchemaModel
 class ImplementationSpec(SchemaModel):
     source_path: str = Field(description="Original spec file path.")
     service_name: str = Field(description="Name of the target education service.")
+    target_framework: str = Field(
+        default="streamlit",
+        description="Target application framework. Currently only streamlit is supported.",
+    )
     team_identity: str = Field(
         default="교육 서비스 구현 전문 AI Agent 팀",
         description="Identity of the implementation team.",
@@ -53,6 +57,7 @@ def parse_markdown_spec(path: Path) -> ImplementationSpec:
     return ImplementationSpec(
         source_path=str(path),
         service_name=title,
+        target_framework="streamlit",
         service_purpose=_section_text(sections, "서비스 목적"),
         target_users=_section_list(sections, "대상 사용자"),
         learning_goals=_extract_learning_goals(sections),

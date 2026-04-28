@@ -159,6 +159,7 @@ def planning_package_to_implementation_spec(
     return ImplementationSpec(
         source_path=str(package_dir),
         service_name=package.service_meta.service_name,
+        target_framework=package.service_meta.target_framework or "streamlit",
         service_purpose=package.service_meta.purpose,
         target_users=target_users,
         learning_goals=package.evaluation_spec.rubric_criteria,

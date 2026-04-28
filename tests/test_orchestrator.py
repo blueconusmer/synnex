@@ -18,6 +18,7 @@ def test_parse_markdown_spec_extracts_expected_fields() -> None:
     spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
 
     assert spec.service_name == "질문력 향상 퀴즈 서비스 구현 명세서"
+    assert spec.target_framework == "streamlit"
     assert "중학생" in spec.target_users
     assert spec.learning_goals == ["구체성", "맥락성", "목적성"]
     assert spec.total_count == 8
@@ -156,3 +157,79 @@ def test_pipeline_records_input_intake_planning_review_warning(tmp_path: Path) -
     assert "## Input Intake Warning" in qa_report
     assert "llm_spec.generation_prompt" in final_summary
     assert "llm_spec.generation_prompt" in qa_report
+
+
+def test_pipeline_stops_before_local_checks_for_unsupported_framework(tmp_path: Path) -> None:
+    package_dir = REPO_ROOT / "inputs" / "mock_planning_outputs" / "question_quest_v0"
+    intake_result = load_input_intake(package_dir)
+    assert intake_result.implementation_spec is not None
+    unsupported_spec = intake_result.implementation_spec.model_copy(
+        update={"target_framework": "react"}
+    )
+
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(),
+        spec_path=package_dir,
+        implementation_spec=unsupported_spec,
+        input_intake_result=intake_result,
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    result = pipeline.run()
+
+    output_dir = tmp_path / "outputs"
+    prototype_output = json.loads(
+        (output_dir / "prototype_builder_output.json").read_text(encoding="utf-8")
+    )
+    execution_log = (output_dir / "execution_log.txt").read_text(encoding="utf-8")
+    qa_report = (output_dir / "qa_report.md").read_text(encoding="utf-8")
+    final_summary = (output_dir / "final_summary.md").read_text(encoding="utf-8")
+
+    assert result["prototype_builder_output"].is_supported is False
+    assert prototype_output["target_framework"] == "react"
+    assert prototype_output["is_supported"] is False
+    assert "not supported yet" in prototype_output["unsupported_reason"]
+    assert "[UNSUPPORTED] target_framework=react" in execution_log
+    assert "py_compile" not in execution_log
+    assert "local checks: NOT RUN" in qa_report
+    assert "target_framework: react" in final_summary
+    assert not (output_dir / "run_test_and_fix_output.json").exists()
+    assert not (output_dir / "qa_alignment_output.json").exists()
+    assert not (tmp_path / "app.py").exists()
+
+
+def test_pipeline_records_invalid_target_framework_reason(tmp_path: Path) -> None:
+    package_dir = REPO_ROOT / "inputs" / "mock_planning_outputs" / "question_quest_v0"
+    intake_result = load_input_intake(package_dir)
+    assert intake_result.implementation_spec is not None
+    invalid_spec = intake_result.implementation_spec.model_copy(
+        update={"target_framework": "stramlit"}
+    )
+
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(),
+        spec_path=package_dir,
+        implementation_spec=invalid_spec,
+        input_intake_result=intake_result,
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    pipeline.run()
+
+    output_dir = tmp_path / "outputs"
+    prototype_output = json.loads(
+        (output_dir / "prototype_builder_output.json").read_text(encoding="utf-8")
+    )
+    execution_log = (output_dir / "execution_log.txt").read_text(encoding="utf-8")
+
+    assert prototype_output["target_framework"] == "stramlit"
+    assert prototype_output["is_supported"] is False
+    assert "is not recognized" in prototype_output["unsupported_reason"]
+    assert "Known values: fastapi, nextjs, react, streamlit." in prototype_output["unsupported_reason"]
+    assert "[UNSUPPORTED] target_framework=stramlit" in execution_log

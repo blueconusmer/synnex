@@ -96,12 +96,13 @@ def validate_and_normalize_planning_package(
             )
         )
 
+    target_framework = implementation_spec.target_framework or "streamlit"
     auto_fixes.append(
         AutoFixRecord(
             field_path="runtime_config.target_framework",
             before=None,
-            after="streamlit",
-            reason="target_framework 누락 시 기본 실행 프레임워크를 streamlit으로 설정했다.",
+            after=target_framework,
+            reason="ImplementationSpec 기준 target_framework 실행 값을 기록했다.",
         )
     )
 
@@ -141,7 +142,7 @@ def validate_and_normalize_planning_package(
 
     runtime_config = InputRuntimeConfig(
         service_slug=service_slug,
-        target_framework="streamlit",
+        target_framework=target_framework,
         content_output_filename=content_output_filename,
         normalized_source_path=normalized_source_path,
         content_distribution=content_distribution,

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from loaders import load_input_intake, load_planning_package
+from loaders import load_input_intake, load_planning_package, planning_package_to_implementation_spec
 from main import build_parser
 from orchestrator.app_source import build_content_filename
 from orchestrator.pipeline import ImplementationPipeline
@@ -24,6 +24,7 @@ def test_load_planning_package_reads_fixture_files() -> None:
     package = load_planning_package(PACKAGE_DIR)
 
     assert package.service_meta.service_name == "question_quest"
+    assert package.service_meta.target_framework == "streamlit"
     assert package.service_meta.version == "v0"
     assert package.evaluation_spec.rubric_criteria == ["구체성", "맥락성", "목적성"]
     assert package.evaluation_spec.grade_levels == ["브론즈", "실버", "골드", "플래티넘"]
@@ -79,6 +80,8 @@ def test_input_intake_generates_runtime_config_and_distribution() -> None:
 
     assert intake_result.status == ValidationStatus.AUTO_FIXED
     assert intake_result.runtime_config is not None
+    assert intake_result.implementation_spec is not None
+    assert intake_result.implementation_spec.target_framework == "streamlit"
     assert intake_result.runtime_config.service_slug == "question_quest"
     assert intake_result.runtime_config.target_framework == "streamlit"
     assert intake_result.runtime_config.content_output_filename == "question_quest_contents.json"
@@ -91,8 +94,22 @@ def test_input_intake_generates_runtime_config_and_distribution() -> None:
         "question_improvement": 2,
     }
     assert all(not path.startswith("/tmp/") for path in intake_result.source_paths)
-    assert intake_result.implementation_spec is not None
     assert intake_result.quality_judgement is not None
+
+
+def test_planning_package_adapter_forwards_target_framework() -> None:
+    package = load_planning_package(PACKAGE_DIR)
+    package = package.model_copy(
+        update={
+            "service_meta": package.service_meta.model_copy(
+                update={"target_framework": "react"}
+            )
+        }
+    )
+
+    spec = planning_package_to_implementation_spec(package, PACKAGE_DIR)
+
+    assert spec.target_framework == "react"
 
 
 def test_input_intake_marks_planning_review_without_blocking(tmp_path: Path) -> None:

@@ -4,6 +4,9 @@
     "korean_name": "MVP 서비스 코드 생성 Agent"
   },
   "service_name": "question_quest",
+  "target_framework": "streamlit",
+  "is_supported": true,
+  "unsupported_reason": "",
   "app_entrypoint": "app.py",
   "generated_files": [
     {

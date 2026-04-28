@@ -47,3 +47,11 @@
 - 결정: 콘텐츠 Agent 후처리에서 `correct_choice` 보정, 최소 3개 선택지 보정, answer/explanation/learning point 매핑 보정을 수행한 뒤 계약 검증을 실행한다.
 - 이유: 이번 단계는 교육 콘텐츠 자동 생성의 완전한 미세 품질보다, 8문항 구조와 MVP 실행 가능성을 검증하는 것이 더 중요하기 때문이다.
 - 영향 범위: `agents/implementation/content_interaction_agent.py`, live `quiz_contents.json` 안정성
+
+## 2026-04-28
+
+### 결정 8. `target_framework`는 Streamlit 우선, 미지원 프레임워크는 명시적 중단
+- 맥락: 후속 React/FastAPI/Next.js 확장을 위해 Prototype Builder가 어떤 프레임워크를 대상으로 생성해야 하는지 알아야 한다.
+- 결정: runtime 기준 필드는 `ImplementationSpec.target_framework`로 두고, 현재 지원값은 `streamlit`만 허용한다. 다른 값은 fallback 생성 없이 unsupported output/log를 남긴 뒤 local checks 전에 중단한다.
+- 이유: 미지원 프레임워크를 Streamlit으로 암묵 대체하면 실제 지원 범위를 오해할 수 있기 때문이다.
+- 영향 범위: `schemas/implementation/implementation_spec.py`, `schemas/planning_package/package.py`, `agents/implementation/prototype_builder_agent.py`, `orchestrator/pipeline.py`

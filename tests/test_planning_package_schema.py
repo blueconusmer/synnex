@@ -111,9 +111,26 @@ def build_quiz_payload() -> dict:
 )
 def test_planning_output_package_accepts_generic_education_services(payload: dict) -> None:
     package = PlanningOutputPackage.model_validate(payload)
+    expected = {
+        **payload,
+        "service_meta": {
+            "target_framework": "streamlit",
+            **payload["service_meta"],
+        },
+    }
 
     assert package.service_meta.service_name
-    assert package.model_dump() == payload
+    assert package.service_meta.target_framework == "streamlit"
+    assert package.model_dump() == expected
+
+
+def test_service_meta_accepts_explicit_target_framework() -> None:
+    payload = build_quiz_payload()
+    payload["service_meta"]["target_framework"] = "react"
+
+    package = PlanningOutputPackage.model_validate(payload)
+
+    assert package.service_meta.target_framework == "react"
 
 
 def test_planning_package_alias_points_to_same_model() -> None:
