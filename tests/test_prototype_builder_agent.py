@@ -48,6 +48,9 @@ def test_prototype_builder_generates_quest_template_from_planning_package() -> N
 
     source = output.generated_files[0].content
 
+    assert output.target_framework == "streamlit"
+    assert output.is_supported is True
+    assert output.unsupported_reason == ""
     assert "def api_session_start()" in source
     assert "def api_quest_submit(user_response: Any)" in source
     assert "def api_session_result()" in source
@@ -58,3 +61,31 @@ def test_prototype_builder_generates_quest_template_from_planning_package() -> N
     assert "question_quest_contents.json" in source
     assert "load_planning_package" not in source
     assert "constitution.md" not in source
+
+
+def test_prototype_builder_returns_unsupported_output_for_react() -> None:
+    fake = FakeLLMClient()
+    package = load_planning_package(PACKAGE_DIR)
+    spec = planning_package_to_implementation_spec(package, PACKAGE_DIR).model_copy(
+        update={"target_framework": "react"}
+    )
+
+    output = run_prototype_builder_agent(
+        PrototypeBuilderInput(
+            spec_intake_output=fake.generate_json(prompt="", response_model=SpecIntakeOutput),
+            requirement_mapping_output=fake.generate_json(
+                prompt="",
+                response_model=RequirementMappingOutput,
+            ),
+            content_interaction_output=_build_package_content_output(fake, spec.service_name),
+            implementation_spec=spec,
+        ),
+        fake,
+    )
+
+    assert output.target_framework == "react"
+    assert output.is_supported is False
+    assert "not supported yet" in output.unsupported_reason
+    assert "streamlit" in output.unsupported_reason
+    assert output.generated_files == []
+    assert output.app_entrypoint == ""

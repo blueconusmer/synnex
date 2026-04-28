@@ -11,6 +11,10 @@ class ServiceMeta(SchemaModel):
     """Top-level service metadata for a planning output package."""
 
     service_name: str = Field(description="Canonical service name for downstream loaders.")
+    target_framework: str = Field(
+        default="streamlit",
+        description="Target application framework. Defaults to streamlit for compatibility.",
+    )
     target_user: str = Field(description="Primary target learner or user segment.")
     purpose: str = Field(description="Service purpose or intended learning outcome.")
     version: str = Field(description="Planning package version string.")

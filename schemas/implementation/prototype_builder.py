@@ -27,7 +27,19 @@ class PrototypeBuilderInput(SchemaModel):
 class PrototypeBuilderOutput(SchemaModel):
     agent: AgentLabel | None = Field(default=None, description="Agent label metadata.")
     service_name: str = Field(description="Service name for the generated MVP.")
-    app_entrypoint: str = Field(description="Relative path to the generated Streamlit app.")
+    target_framework: str = Field(
+        default="streamlit",
+        description="Framework requested by the implementation spec.",
+    )
+    is_supported: bool = Field(
+        default=True,
+        description="Whether the requested target framework can be generated now.",
+    )
+    unsupported_reason: str = Field(
+        default="",
+        description="Reason why the requested target framework is not generated.",
+    )
+    app_entrypoint: str = Field(description="Relative path to the generated app.")
     generated_files: list[GeneratedFile] = Field(
         default_factory=list,
         description="Files that should be materialized for the MVP.",

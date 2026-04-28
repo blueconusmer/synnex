@@ -98,6 +98,10 @@ export OPENAI_BASE_URL="https://api.openai.com/v1"  # optional
 .venv/bin/python main.py --input-path inputs/quiz_service_spec.md --output-dir outputs
 ```
 
+`target_framework`의 기본값은 `streamlit`이다. 현재 Prototype Builder가 실제로
+생성하는 앱은 Streamlit `app.py`뿐이며, `react`, `fastapi`, `nextjs` 같은 값은
+명확한 unsupported 결과와 로그를 남기고 local checks 전에 중단한다.
+
 ## Outputs 확인 방법
 
 실행이 끝나면 `outputs/` 아래에 아래 파일이 생성된다.
