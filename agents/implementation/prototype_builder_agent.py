@@ -18,6 +18,7 @@ from agents.implementation.helpers import dump_model, load_prompt_text, make_lab
 
 SUPPORTED_TARGET_FRAMEWORKS = {"streamlit"}
 KNOWN_UNSUPPORTED_TARGET_FRAMEWORKS = {"react", "fastapi", "nextjs"}
+KNOWN_TARGET_FRAMEWORKS = SUPPORTED_TARGET_FRAMEWORKS | KNOWN_UNSUPPORTED_TARGET_FRAMEWORKS
 
 
 def run_prototype_builder_agent(
@@ -33,10 +34,7 @@ def run_prototype_builder_agent(
     service_name = spec.service_name or input_model.spec_intake_output.service_summary.split(" ")[0]
     target_framework = _normalize_target_framework(spec.target_framework)
     if target_framework not in SUPPORTED_TARGET_FRAMEWORKS:
-        unsupported_reason = (
-            f"target_framework '{target_framework}' is not supported yet. "
-            "Currently supported: streamlit"
-        )
+        unsupported_reason = _build_unsupported_reason(target_framework)
         return PrototypeBuilderOutput(
             agent=make_label(
                 "Prototype Builder Agent",
@@ -126,9 +124,21 @@ def _build_app_source(input_model: PrototypeBuilderInput) -> str:
 
 def _normalize_target_framework(value: str) -> str:
     normalized = (value or "streamlit").strip().lower()
-    if normalized in KNOWN_UNSUPPORTED_TARGET_FRAMEWORKS:
-        return normalized
     return normalized or "streamlit"
+
+
+def _build_unsupported_reason(target_framework: str) -> str:
+    if target_framework in KNOWN_UNSUPPORTED_TARGET_FRAMEWORKS:
+        return (
+            f"target_framework '{target_framework}' is not supported yet. "
+            "Currently supported: streamlit"
+        )
+
+    known_values = ", ".join(sorted(KNOWN_TARGET_FRAMEWORKS))
+    return (
+        f"target_framework '{target_framework}' is not recognized. "
+        f"Known values: {known_values}."
+    )
 
 
 def _normalize_grade_thresholds(

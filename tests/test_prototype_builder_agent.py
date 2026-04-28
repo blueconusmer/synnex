@@ -89,3 +89,33 @@ def test_prototype_builder_returns_unsupported_output_for_react() -> None:
     assert "streamlit" in output.unsupported_reason
     assert output.generated_files == []
     assert output.app_entrypoint == ""
+
+
+def test_prototype_builder_distinguishes_invalid_target_framework() -> None:
+    fake = FakeLLMClient()
+    package = load_planning_package(PACKAGE_DIR)
+    spec = planning_package_to_implementation_spec(package, PACKAGE_DIR).model_copy(
+        update={"target_framework": "stramlit"}
+    )
+
+    output = run_prototype_builder_agent(
+        PrototypeBuilderInput(
+            spec_intake_output=fake.generate_json(prompt="", response_model=SpecIntakeOutput),
+            requirement_mapping_output=fake.generate_json(
+                prompt="",
+                response_model=RequirementMappingOutput,
+            ),
+            content_interaction_output=_build_package_content_output(fake, spec.service_name),
+            implementation_spec=spec,
+        ),
+        fake,
+    )
+
+    assert output.target_framework == "stramlit"
+    assert output.is_supported is False
+    assert output.generated_files == []
+    assert (
+        output.unsupported_reason
+        == "target_framework 'stramlit' is not recognized. "
+        "Known values: fastapi, nextjs, react, streamlit."
+    )

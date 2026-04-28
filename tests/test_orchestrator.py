@@ -199,3 +199,37 @@ def test_pipeline_stops_before_local_checks_for_unsupported_framework(tmp_path: 
     assert not (output_dir / "run_test_and_fix_output.json").exists()
     assert not (output_dir / "qa_alignment_output.json").exists()
     assert not (tmp_path / "app.py").exists()
+
+
+def test_pipeline_records_invalid_target_framework_reason(tmp_path: Path) -> None:
+    package_dir = REPO_ROOT / "inputs" / "mock_planning_outputs" / "question_quest_v0"
+    intake_result = load_input_intake(package_dir)
+    assert intake_result.implementation_spec is not None
+    invalid_spec = intake_result.implementation_spec.model_copy(
+        update={"target_framework": "stramlit"}
+    )
+
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(),
+        spec_path=package_dir,
+        implementation_spec=invalid_spec,
+        input_intake_result=intake_result,
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    pipeline.run()
+
+    output_dir = tmp_path / "outputs"
+    prototype_output = json.loads(
+        (output_dir / "prototype_builder_output.json").read_text(encoding="utf-8")
+    )
+    execution_log = (output_dir / "execution_log.txt").read_text(encoding="utf-8")
+
+    assert prototype_output["target_framework"] == "stramlit"
+    assert prototype_output["is_supported"] is False
+    assert "is not recognized" in prototype_output["unsupported_reason"]
+    assert "Known values: fastapi, nextjs, react, streamlit." in prototype_output["unsupported_reason"]
+    assert "[UNSUPPORTED] target_framework=stramlit" in execution_log
