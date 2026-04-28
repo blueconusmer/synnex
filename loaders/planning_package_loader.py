@@ -8,12 +8,19 @@ from schemas.implementation.implementation_spec import ImplementationSpec
 from schemas.planning_package import (
     ContentSpec,
     EvaluationSpec,
+    InputIntakeResult,
     InteractionSpec,
     InterfaceSpec,
     LLMSpec,
     PlanningOutputPackage,
     ServiceMeta,
     TestSpec,
+)
+from validators import (
+    DeterministicInputQualityJudge,
+    InputQualityJudge,
+    build_failed_input_intake_result,
+    validate_and_normalize_planning_package,
 )
 
 
@@ -25,6 +32,10 @@ EXPECTED_FILES = {
     "interface_spec": "interface_spec.md",
     "pytest_file": "pytest.py",
 }
+
+
+class PlanningPackageLoadError(ValueError):
+    """Raised when a planning package file exists but cannot be parsed."""
 
 
 def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
@@ -99,6 +110,36 @@ def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
     )
 
 
+def load_input_intake(
+    package_dir: Path,
+    quality_judge: InputQualityJudge | None = None,
+) -> InputIntakeResult:
+    """Load, validate, and normalize a planning package before the 6-agent pipeline."""
+
+    try:
+        package = load_planning_package(package_dir)
+        implementation_spec = planning_package_to_implementation_spec(package, package_dir)
+    except FileNotFoundError as exc:
+        return build_failed_input_intake_result(
+            package_dir=package_dir,
+            message=str(exc),
+            code="PLANNING_PACKAGE_FILE_MISSING",
+        )
+    except PlanningPackageLoadError as exc:
+        return build_failed_input_intake_result(
+            package_dir=package_dir,
+            message=str(exc),
+            code="PLANNING_PACKAGE_PARSE_FAILED",
+        )
+
+    return validate_and_normalize_planning_package(
+        package=package,
+        package_dir=package_dir,
+        implementation_spec=implementation_spec,
+        quality_judge=quality_judge or DeterministicInputQualityJudge(),
+    )
+
+
 def planning_package_to_implementation_spec(
     package: PlanningOutputPackage,
     package_dir: Path,
@@ -134,8 +175,8 @@ def _read_text(path: Path) -> str:
 def _read_json(path: Path) -> dict:
     try:
         payload = json.loads(_read_text(path))
-    except json.JSONDecodeError:
-        return {}
+    except json.JSONDecodeError as exc:
+        raise PlanningPackageLoadError(f"Failed to parse JSON file: {path}") from exc
     return payload if isinstance(payload, dict) else {}
 
 

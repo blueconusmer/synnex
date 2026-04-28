@@ -555,8 +555,7 @@ def main() -> None:
     ensure_state()
     render_sidebar()
 
-    content_path = resolve_content_path()
-    if content_path is None:
+    if resolve_content_path() is None:
         st.warning(
             "콘텐츠 파일을 찾지 못했습니다. 먼저 파이프라인을 실행하거나 "
             f"다음 경로 중 하나에 파일을 준비하세요: {describe_content_paths()}"

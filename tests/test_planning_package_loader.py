@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
 
-from loaders import load_planning_package, planning_package_to_implementation_spec
+from loaders import load_input_intake, load_planning_package
 from main import build_parser
 from orchestrator.app_source import build_content_filename
 from orchestrator.pipeline import ImplementationPipeline
+from schemas.planning_package import ValidationStatus
 from tests.fakes import FakeLLMClient
 
 
@@ -35,7 +37,7 @@ def test_load_planning_package_reads_fixture_files() -> None:
     assert package.llm_spec.evaluation_prompt
 
 
-def test_loader_falls_back_on_parse_failures(tmp_path: Path) -> None:
+def test_loader_raises_on_malformed_data_schema_json(tmp_path: Path) -> None:
     package_dir = tmp_path / "example_service_v1"
     package_dir.mkdir()
     (package_dir / "constitution.md").write_text("# Empty\n", encoding="utf-8")
@@ -45,15 +47,54 @@ def test_loader_falls_back_on_parse_failures(tmp_path: Path) -> None:
     (package_dir / "interface_spec.md").write_text("# Empty\n", encoding="utf-8")
     (package_dir / "pytest.py").write_text('"""\nplaceholder\n"""', encoding="utf-8")
 
-    package = load_planning_package(package_dir)
+    with pytest.raises(ValueError):
+        load_planning_package(package_dir)
 
-    assert package.service_meta.service_name == "example_service"
-    assert package.service_meta.version == "v1"
-    assert package.content_spec.content_types == []
-    assert package.content_spec.total_count == 0
-    assert package.interface_spec.screens == []
-    assert package.llm_spec.generation_prompt == ""
-    assert package.test_spec.acceptance_criteria == []
+    intake_result = load_input_intake(package_dir)
+    assert intake_result.status == ValidationStatus.FAIL
+    assert intake_result.issues[0].code == "PLANNING_PACKAGE_PARSE_FAILED"
+
+
+def test_input_intake_generates_runtime_config_and_distribution() -> None:
+    intake_result = load_input_intake(PACKAGE_DIR)
+
+    assert intake_result.status == ValidationStatus.AUTO_FIXED
+    assert intake_result.runtime_config is not None
+    assert intake_result.runtime_config.service_slug == "question_quest"
+    assert intake_result.runtime_config.target_framework == "streamlit"
+    assert intake_result.runtime_config.content_output_filename == "question_quest_contents.json"
+    assert intake_result.runtime_config.content_distribution.item_count_by_type == {
+        "multiple_choice": 1,
+        "question_improvement": 2,
+    }
+    assert intake_result.implementation_spec is not None
+    assert intake_result.quality_judgement is not None
+
+
+def test_input_intake_marks_planning_review_without_blocking(tmp_path: Path) -> None:
+    package_dir = tmp_path / "review_service_v0"
+    shutil.copytree(PACKAGE_DIR, package_dir)
+    (package_dir / "prompt_spec.md").write_text("# Prompt Spec\n\n## Empty\n", encoding="utf-8")
+
+    intake_result = load_input_intake(package_dir)
+
+    assert intake_result.status == ValidationStatus.NEEDS_PLANNING_REVIEW
+    assert any(
+        item.field_path == "llm_spec.generation_prompt"
+        for item in intake_result.planning_review_items
+    )
+    assert intake_result.implementation_spec is not None
+
+
+def test_input_intake_missing_required_file_returns_fail(tmp_path: Path) -> None:
+    package_dir = tmp_path / "missing_file_v0"
+    shutil.copytree(PACKAGE_DIR, package_dir)
+    (package_dir / "data_schema.json").unlink()
+
+    intake_result = load_input_intake(package_dir)
+
+    assert intake_result.status == ValidationStatus.FAIL
+    assert intake_result.issues[0].code == "PLANNING_PACKAGE_FILE_MISSING"
 
 
 def test_parser_accepts_input_package_option() -> None:
@@ -64,8 +105,9 @@ def test_parser_accepts_input_package_option() -> None:
 
 
 def test_pipeline_runs_with_planning_package_adapter(tmp_path: Path) -> None:
-    package = load_planning_package(PACKAGE_DIR)
-    implementation_spec = planning_package_to_implementation_spec(package, PACKAGE_DIR)
+    intake_result = load_input_intake(PACKAGE_DIR)
+    assert intake_result.implementation_spec is not None
+    implementation_spec = intake_result.implementation_spec
     content_filename = build_content_filename(implementation_spec.service_name)
 
     pipeline = ImplementationPipeline(
@@ -74,6 +116,7 @@ def test_pipeline_runs_with_planning_package_adapter(tmp_path: Path) -> None:
         workspace_dir=tmp_path,
         output_dir=tmp_path / "outputs",
         implementation_spec=implementation_spec,
+        input_intake_result=intake_result,
         app_target_path=tmp_path / "app.py",
         enable_streamlit_smoke=False,
     )
@@ -82,6 +125,7 @@ def test_pipeline_runs_with_planning_package_adapter(tmp_path: Path) -> None:
 
     assert implementation_spec.total_count == 3
     assert implementation_spec.items_per_type == 2
+    assert (tmp_path / "outputs" / "input_intake_report.json").exists()
     assert (tmp_path / "outputs" / content_filename).exists()
     assert (tmp_path / "app.py").exists()
 

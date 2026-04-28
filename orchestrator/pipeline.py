@@ -23,6 +23,7 @@ from schemas.implementation.qa_alignment import QAAlignmentInput
 from schemas.implementation.requirement_mapping import RequirementMappingInput
 from schemas.implementation.run_test_and_fix import RunTestAndFixInput
 from schemas.implementation.spec_intake import SpecIntakeInput
+from schemas.planning_package import InputIntakeResult, ValidationStatus
 
 
 class ImplementationPipeline:
@@ -36,6 +37,7 @@ class ImplementationPipeline:
         workspace_dir: Path,
         output_dir: Path,
         implementation_spec: ImplementationSpec | None = None,
+        input_intake_result: InputIntakeResult | None = None,
         app_target_path: Path | None = None,
         python_executable: str | None = None,
         enable_streamlit_smoke: bool = True,
@@ -45,6 +47,7 @@ class ImplementationPipeline:
         self.workspace_dir = workspace_dir
         self.output_dir = output_dir
         self.implementation_spec = implementation_spec
+        self.input_intake_result = input_intake_result
         self.app_target_path = app_target_path or workspace_dir / "app.py"
         self.python_executable = python_executable or sys.executable
         self.enable_streamlit_smoke = enable_streamlit_smoke
@@ -56,6 +59,9 @@ class ImplementationPipeline:
         content_filename = build_content_filename(spec.service_name)
         self._log("[INFO] Starting education-service implementation pipeline")
         self._log(f"[INFO] Source spec: {self.spec_path}")
+        if self.input_intake_result is not None:
+            self._save_json(self.output_dir / "input_intake_report.json", self.input_intake_result)
+            self._log(f"[INFO] Input intake status: {self.input_intake_result.status.value}")
 
         spec_intake_output = self._run_stage(
             stage_title="Spec Intake Agent / 구현 명세서 분석 Agent",
@@ -169,6 +175,7 @@ class ImplementationPipeline:
         )
 
         return {
+            "input_intake_result": self.input_intake_result,
             "spec_intake_output": spec_intake_output,
             "requirement_mapping_output": requirement_mapping_output,
             "quiz_contents": content_interaction_output,
@@ -365,9 +372,28 @@ class ImplementationPipeline:
             "# QA Report",
             "",
             f"- Alignment status: {qa_output.alignment_status}",
-            "",
-            "## Checklist",
         ]
+        if self.input_intake_result is not None:
+            lines.extend(
+                [
+                    "",
+                    "## Input Intake",
+                    f"- Status: {self.input_intake_result.status.value}",
+                    f"- Auto fixes: {len(self.input_intake_result.auto_fixes)}",
+                    f"- Planning review items: {len(self.input_intake_result.planning_review_items)}",
+                    f"- Issues: {len(self.input_intake_result.issues)}",
+                ]
+            )
+            if self.input_intake_result.runtime_config is not None:
+                distribution = self.input_intake_result.runtime_config.content_distribution
+                lines.append(f"- Content distribution: {distribution.item_count_by_type}")
+            if self.input_intake_result.status == ValidationStatus.NEEDS_PLANNING_REVIEW:
+                lines.extend(["", "## Input Intake Warning"])
+                lines.extend(
+                    f"- {item.field_path}: {item.reason}"
+                    for item in self.input_intake_result.planning_review_items
+                )
+        lines.extend(["", "## Checklist"])
         lines.extend(f"- {item}" for item in qa_output.qa_checklist)
         lines.extend(["", "## Issues"])
         if qa_output.qa_issues:
@@ -403,9 +429,28 @@ class ImplementationPipeline:
             "",
             "## 서비스 요약",
             f"- {service_summary}",
-            "",
-            "## 구현 요구사항 요약",
         ]
+        if self.input_intake_result is not None:
+            lines.extend(
+                [
+                    "",
+                    "## Input Intake 결과",
+                    f"- 상태: {self.input_intake_result.status.value}",
+                    f"- 자동 보정: {len(self.input_intake_result.auto_fixes)}건",
+                    f"- 기획팀 검토 필요: {len(self.input_intake_result.planning_review_items)}건",
+                    f"- 이슈: {len(self.input_intake_result.issues)}건",
+                ]
+            )
+            if self.input_intake_result.runtime_config is not None:
+                distribution = self.input_intake_result.runtime_config.content_distribution
+                lines.append(f"- 생성 단위 분포: {distribution.item_count_by_type}")
+            if self.input_intake_result.status == ValidationStatus.NEEDS_PLANNING_REVIEW:
+                lines.extend(["", "## Input Intake Warning"])
+                lines.extend(
+                    f"- {item.field_path}: {item.reason}"
+                    for item in self.input_intake_result.planning_review_items
+                )
+        lines.extend(["", "## 구현 요구사항 요약"])
         lines.extend(f"- {target}" for target in implementation_targets)
         lines.extend(
             [

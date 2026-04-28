@@ -5,8 +5,9 @@ from pathlib import Path
 
 from clients.env import load_env_file
 from clients.llm import OpenAICompatibleClient
-from loaders import load_planning_package, planning_package_to_implementation_spec
+from loaders import load_input_intake
 from orchestrator.pipeline import ImplementationPipeline
+from schemas.planning_package import ValidationStatus
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,19 +45,26 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     load_env_file(Path(".env"))
-    llm_client = OpenAICompatibleClient.from_env()
     input_path = Path(args.input_path)
     implementation_spec = None
+    input_intake_result = None
     if args.input_package:
         input_path = Path(args.input_package)
-        package = load_planning_package(input_path)
-        implementation_spec = planning_package_to_implementation_spec(package, input_path)
+        input_intake_result = load_input_intake(input_path)
+        if input_intake_result.status == ValidationStatus.FAIL:
+            print("[FAILED] Input Intake Layer")
+            for issue in input_intake_result.issues:
+                print(f"- {issue.code}: {issue.message}")
+            return 1
+        implementation_spec = input_intake_result.implementation_spec
+    llm_client = OpenAICompatibleClient.from_env()
     pipeline = ImplementationPipeline(
         llm_client=llm_client,
         spec_path=input_path,
         workspace_dir=Path.cwd(),
         output_dir=Path(args.output_dir),
         implementation_spec=implementation_spec,
+        input_intake_result=input_intake_result,
         app_target_path=Path(args.app_path),
         enable_streamlit_smoke=not args.skip_streamlit_smoke,
     )
