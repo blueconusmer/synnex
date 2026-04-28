@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import subprocess
 import sys
@@ -193,3 +194,27 @@ def test_root_app_starts_without_content_file_and_shows_warning(tmp_path: Path) 
     process.terminate()
     output = process.communicate(timeout=5)[0]
     assert "Traceback" not in output
+
+
+def test_root_app_improvement_evaluator_call_arity_matches_definition() -> None:
+    source = (REPO_ROOT / "app.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    definitions = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "evaluate_improvement_question"
+    ]
+    assert definitions, "evaluate_improvement_question definition is missing"
+
+    definition = definitions[0]
+    positional_args = [*definition.args.posonlyargs, *definition.args.args]
+    max_positional_args = len(positional_args)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id != "evaluate_improvement_question":
+            continue
+        assert len(node.args) <= max_positional_args

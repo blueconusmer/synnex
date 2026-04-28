@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
@@ -358,6 +359,10 @@ def _validate_generated_app_source(
         raise InvalidAppSourceError(
             f"app_source is not valid Python: {exc.msg} at line {exc.lineno}."
         ) from exc
+    _validate_function_call_arity(
+        app_source=app_source,
+        function_name="evaluate_improvement_question",
+    )
     forbidden_runtime_inputs = [
         "load_planning_package",
         "constitution.md",
@@ -372,6 +377,54 @@ def _validate_generated_app_source(
                 f"app_source must not read planning package input at runtime: {forbidden}."
             )
     return app_source.rstrip() + "\n"
+
+
+def _validate_function_call_arity(*, app_source: str, function_name: str) -> None:
+    tree = ast.parse(app_source)
+    definitions = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == function_name
+    ]
+    if not definitions:
+        return
+
+    definition = definitions[0]
+    positional_args = [*definition.args.posonlyargs, *definition.args.args]
+    required_count = len(positional_args) - len(definition.args.defaults)
+    max_count = None if definition.args.vararg else len(positional_args)
+    arg_names = {arg.arg for arg in positional_args}
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not _is_call_to_function(node, function_name):
+            continue
+
+        positional_count = len(node.args)
+        keyword_names = {
+            keyword.arg
+            for keyword in node.keywords
+            if keyword.arg is not None and keyword.arg in arg_names
+        }
+        provided_count = positional_count + len(keyword_names)
+        if max_count is not None and positional_count > max_count:
+            raise InvalidAppSourceError(
+                f"{function_name} call passes {positional_count} positional args "
+                f"but function defines {max_count}."
+            )
+        if provided_count < required_count:
+            raise InvalidAppSourceError(
+                f"{function_name} call provides {provided_count} args "
+                f"but function requires {required_count}."
+            )
+
+
+def _is_call_to_function(node: ast.Call, function_name: str) -> bool:
+    if isinstance(node.func, ast.Name):
+        return node.func.id == function_name
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr == function_name
+    return False
 
 
 def _references_outputs_content_path(app_source: str, content_filename: str) -> bool:

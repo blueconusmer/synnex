@@ -164,6 +164,84 @@ st.write(data)
     assert "outputs/{content_filename}" in output.fallback_reason
 
 
+def test_prototype_builder_rejects_improvement_evaluator_arity_mismatch() -> None:
+    arity_mismatch_source = '''from pathlib import Path
+from typing import Any
+
+import streamlit as st
+
+CONTENT_FILENAME = "question_quest_contents.json"
+APP_DIR = Path(__file__).resolve().parent
+OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
+FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
+CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
+
+
+def resolve_content_path() -> Path | None:
+    for candidate in CONTENT_CANDIDATE_PATHS:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def evaluate_improvement_question(user_response: str, original_question: str, topic_context: str):
+    return {}, "좋아졌어요.", 20
+
+
+def api_session_start() -> dict[str, Any]:
+    return {"quests": []}
+
+
+def api_quest_submit(user_response: Any) -> dict[str, Any]:
+    quest = {
+        "original_question": "이거 뭐야?",
+        "topic_context": "국어 숙제",
+        "desired_answer_form": "예시",
+    }
+    evaluate_improvement_question(
+        user_response,
+        quest["original_question"],
+        quest["topic_context"],
+        quest["desired_answer_form"],
+    )
+    return {"ok": True}
+
+
+def api_session_result() -> dict[str, Any]:
+    return {}
+
+
+def main() -> None:
+    if resolve_content_path() is None:
+        st.warning("콘텐츠 파일을 찾지 못했습니다.")
+    st.write("demo")
+
+
+main()
+'''
+    fake = FakeLLMClient(app_source=arity_mismatch_source)
+    package = load_planning_package(PACKAGE_DIR)
+    spec = planning_package_to_implementation_spec(package, PACKAGE_DIR)
+
+    output = run_prototype_builder_agent(
+        PrototypeBuilderInput(
+            spec_intake_output=fake.generate_json(prompt="", response_model=SpecIntakeOutput),
+            requirement_mapping_output=fake.generate_json(
+                prompt="",
+                response_model=RequirementMappingOutput,
+            ),
+            content_interaction_output=_build_package_content_output(fake, spec.service_name),
+            implementation_spec=spec,
+        ),
+        fake,
+    )
+
+    assert output.generation_mode == "fallback_template"
+    assert output.fallback_used is True
+    assert "LLM_OUTPUT_INVALID" in output.builder_errors
+    assert "evaluate_improvement_question call passes 4 positional args" in output.fallback_reason
+
+
 def test_prototype_builder_returns_unsupported_output_for_react() -> None:
     fake = FakeLLMClient()
     package = load_planning_package(PACKAGE_DIR)

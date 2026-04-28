@@ -48,6 +48,9 @@ prompt_spec:
 - `streamlit` 앱에서 사용자는 문제 풀이, 정답 확인, 해설과 학습 포인트 확인이 가능해야 한다.
 - planning package 입력이면 interface_spec의 S0~S5, state_machine의 세션 흐름, data_schema의 score/grade 규칙, prompt_spec의 평가 의도를 반영한다.
 - 개선형 퀘스트 평가는 LLM 호출 없이 글자 수, 맥락 키워드, 목적 키워드 기반 규칙으로 처리한다.
+- 개선형 평가 함수와 호출부의 인자 수는 반드시 일치해야 한다.
+  - 예: `evaluate_improvement_question(user_response, original_question, topic_context)`로 정의했다면 호출도 3개 인자만 넘긴다.
+  - `desired_answer_form` 같은 optional 필드를 쓰려면 함수 시그니처에도 같은 인자를 포함하고 `quest.get("desired_answer_form", "")`처럼 안전하게 읽는다.
 - 내부 함수 이름 `api_session_start`, `api_quest_submit`, `api_session_result`를 포함한다.
 - 반환 JSON의 `app_path`는 `app.py`여야 한다.
 - 반환 JSON의 `app_source`에는 전체 Python 파일 내용을 담아야 한다.

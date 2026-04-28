@@ -5,93 +5,76 @@
   },
   "implementation_targets": [
     "중학생 대상 메타인지 및 질문 구체화 능력 훈련 제공",
-    "주제/상황/원하는 답의 형태 요소 포함한 질문 작성 기능 구현",
-    "3개 세션(각 5-10분)으로 구성된 점진적 학습 프로세스 설계",
-    "정답을 제공하지 않고 질문 개선을 유도하는 피드백 시스템 구현",
-    "점수가 누적되며 하강하지 않는 평가 체계 적용",
-    "모든 콘텐츠를 중학생 눈높이에 맞춘 쉬운 표현으로 작성",
-    "multiple_choice 및 question_improvement 핵심 기능 구현",
-    "SESSION_START → QUEST_N_ACTIVE → QUEST_N_FEEDBACK 상태 전이 로직 준수",
-    "데이터 스키마/상태 머신/점수 규칙/프롬프트 형식/API 응답 검증 필수",
-    "설계 원칙·학습 목표·루브릭과의 정합성 유지"
+    "주제/상황/원하는 답 형태 3요소 포함 질문 작성 기능 구현",
+    "3개 세션(QUEST_1~3)별 질문 작성 → 피드백 상태 전이 구조",
+    "정답 제공 금지, 질문 개선 유도에 집중",
+    "점수 누적 시스템(감점 없음) 및 등급 갱신 구현",
+    "5~10분 내 완료 가능한 세션 설계",
+    "중학생 친화적 언어 사용(어려운 어휘 배제)",
+    "Streamlit 프레임워크 기반 구현",
+    "API 엔드포인트: /api/session/start, /api/quest/submit, /api/session/result",
+    "데이터 스키마/상태 머신/점수 규칙/프롬프트 형식/API 응답 검증 필수"
   ],
   "file_plan": [
     {
       "path": "data_schema.json",
-      "purpose": "서비스 데이터 구조 및 유효성 검증 기준 정의",
+      "purpose": "세션 데이터 구조, 질문 필드, 점수 체계 정의",
       "producing_agent": "Spec Intake Agent"
     },
     {
       "path": "state_machine.md",
-      "purpose": "세션 상태 전이 로직 및 유효성 검증 기준 문서화",
+      "purpose": "QUEST_1~3 세션 상태 전이 다이어그램 문서화",
       "producing_agent": "Spec Intake Agent"
     },
     {
       "path": "constitution.md",
-      "purpose": "점수 규칙·등급 체계·학습 목표 정합성 문서화",
+      "purpose": "점수 누적 규칙, 등급 갱신 조건, 감점 방지 정책 명시",
       "producing_agent": "Spec Intake Agent"
     },
     {
       "path": "prompt_spec.md",
-      "purpose": "프롬프트 출력 형식 및 콘텐츠 생성 규칙 문서화",
+      "purpose": "피드백 프롬프트 출력 형식 및 중학생 친화적 언어 가이드라인 정의",
       "producing_agent": "Spec Intake Agent"
     },
     {
       "path": "interface_spec.md",
-      "purpose": "API 응답 형식 및 인터페이스 동작 명세 문서화",
+      "purpose": "API 엔드포인트 응답 형식 및 검증 규칙 문서화",
       "producing_agent": "Spec Intake Agent"
     },
     {
-      "path": "api/session/start.py",
-      "purpose": "세션 초기화 API 엔드포인트 구현",
-      "producing_agent": "Implementation Agent"
-    },
-    {
-      "path": "api/quest/submit.py",
-      "purpose": "질문 제출 및 피드백 처리 API 엔드포인트 구현",
-      "producing_agent": "Implementation Agent"
-    },
-    {
-      "path": "api/session/result.py",
-      "purpose": "세션 결과 집계 및 반환 API 엔드포인트 구현",
-      "producing_agent": "Implementation Agent"
-    },
-    {
       "path": "streamlit_app.py",
-      "purpose": "Streamlit 기반 프론트엔드 UI 구현",
-      "producing_agent": "Implementation Agent"
+      "purpose": "Streamlit 기반 UI 프로토타입 구현",
+      "producing_agent": "UI Implementation Agent"
     }
   ],
   "quiz_generation_requirements": {
-    "quiz_type_count": 2,
-    "items_per_type": 3,
-    "total_items": 6,
+    "quiz_type_count": 3,
+    "items_per_type": 1,
+    "total_items": 3,
     "required_fields": [
-      "topic",
-      "context",
-      "desired_answer_form",
-      "feedback_type",
-      "difficulty_level"
+      "주제",
+      "상황",
+      "원하는 답 형태",
+      "피드백 유형",
+      "점수 가중치"
     ]
   },
   "app_constraints": [
+    "정답 제공 금지 및 개선 유도 피드백만 출력",
+    "세션당 5~10분 완료 시간 강제",
+    "중학생 친화적 언어 사용(어려운 어휘 배제)",
     "Streamlit 프레임워크 기반 구현",
-    "API 응답은 interface_spec.md에 명시된 JSON 스키마 준수",
-    "프롬프트 출력은 prompt_spec.md에 정의된 형식 준수",
-    "상태 전이는 state_machine.md에 정의된 규칙 준수",
-    "점수 계산은 constitution.md ⑦항의 규칙 준수",
-    "모든 콘텐츠는 중학생 수준의 쉬운 표현 사용",
-    "정답 제공 없이 질문 개선 유도 피드백 구현",
-    "세션당 5-10분 내 완료 가능한 UI/UX 설계"
+    "API 엔드포인트: /api/session/start, /api/quest/submit, /api/session/result 준수",
+    "점수 누적 시스템 구현(감점 없음)",
+    "등급 갱신 로직 구현",
+    "데이터 스키마/상태 머신/점수 규칙/프롬프트 형식/API 응답 검증 필수"
   ],
   "test_strategy": [
-    "data_schema.json에 정의된 데이터 스키마 검증 테스트",
-    "state_machine.md에 명시된 상태 전이 로직 검증 테스트",
-    "constitution.md ⑦항의 점수·등급 규칙 검증 테스트",
-    "prompt_spec.md에 명시된 프롬프트 출력 형식 검증 테스트",
-    "interface_spec.md에 명시된 API 응답 형식 검증 테스트",
-    "multiple_choice 및 question_improvement 기능 통합 테스트",
-    "세션별 시간 제한(5-10분) 준수 여부 테스트",
-    "중학생 수준의 쉬운 표현 사용 여부 수동 검증"
+    "data_schema.json 스키마 유효성 검증(JSON Schema Validator)",
+    "state_machine.md 상태 전이 로직 검증(유닛 테스트)",
+    "constitution.md 점수·등급 규칙 검증(시뮬레이션 테스트)",
+    "prompt_spec.md 출력 형식 검증(문자열 패턴 매칭)",
+    "interface_spec.md API 응답 형식 검증(Postman/REST Assured)",
+    "Streamlit UI 프로토타입 사용성 테스트(중학생 대상)"
   ]
 }
