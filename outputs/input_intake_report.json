@@ -21,17 +21,9 @@
     },
     "evaluation_spec": {
       "rubric_criteria": [
-        "QFT (Question Formulation Technique)",
-        "스캐폴딩 (Scaffolding)",
-        "게이미피케이션 (Gamification)",
-        "산파법 (Socratic Method)",
-        "PBL (문제 기반 학습)",
         "구체성",
         "맥락성",
-        "목적성",
-        "우수",
-        "양호",
-        "미흡"
+        "목적성"
       ],
       "grade_levels": [
         "브론즈",
@@ -155,17 +147,9 @@
       "중학생"
     ],
     "learning_goals": [
-      "QFT (Question Formulation Technique)",
-      "스캐폴딩 (Scaffolding)",
-      "게이미피케이션 (Gamification)",
-      "산파법 (Socratic Method)",
-      "PBL (문제 기반 학습)",
       "구체성",
       "맥락성",
-      "목적성",
-      "우수",
-      "양호",
-      "미흡"
+      "목적성"
     ],
     "core_features": [
       "multiple_choice",

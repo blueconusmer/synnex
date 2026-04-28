@@ -221,7 +221,6 @@ def _validate_required_structure(
         ("evaluation_spec.rubric_criteria", package.evaluation_spec.rubric_criteria),
         ("interaction_spec.session_structure", package.interaction_spec.session_structure),
         ("interface_spec.screens", package.interface_spec.screens),
-        ("test_spec.test_file_path", package.test_spec.test_file_path),
     ]
     for field_path, value in required_checks:
         if value:
@@ -398,9 +397,12 @@ def _expected_source_paths(package_dir: Path) -> list[str]:
         "state_machine.md",
         "prompt_spec.md",
         "interface_spec.md",
-        "pytest.py",
     ]
-    return [str(package_dir / filename) for filename in filenames]
+    paths = [str(package_dir / filename) for filename in filenames]
+    optional_pytest = package_dir / "pytest.py"
+    if optional_pytest.exists():
+        paths.append(str(optional_pytest))
+    return paths
 
 
 def _slugify_service_name(value: str) -> str:

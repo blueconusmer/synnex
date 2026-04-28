@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from clients.env import load_env_file
@@ -52,6 +53,7 @@ def main() -> int:
         input_path = Path(args.input_package)
         input_intake_result = load_input_intake(input_path)
         if input_intake_result.status == ValidationStatus.FAIL:
+            _write_input_intake_report(Path(args.output_dir), input_intake_result)
             print("[FAILED] Input Intake Layer")
             for issue in input_intake_result.issues:
                 print(f"- {issue.code}: {issue.message}")
@@ -70,6 +72,14 @@ def main() -> int:
     )
     pipeline.run()
     return 0
+
+
+def _write_input_intake_report(output_dir: Path, input_intake_result) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "input_intake_report.json").write_text(
+        json.dumps(input_intake_result.model_dump(mode="json"), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":

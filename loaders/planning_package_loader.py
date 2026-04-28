@@ -24,14 +24,17 @@ from validators import (
 )
 
 
-EXPECTED_FILES = {
+REQUIRED_FILES = {
     "constitution": "constitution.md",
     "data_schema": "data_schema.json",
     "state_machine": "state_machine.md",
     "prompt_spec": "prompt_spec.md",
     "interface_spec": "interface_spec.md",
+}
+OPTIONAL_FILES = {
     "pytest_file": "pytest.py",
 }
+EXPECTED_FILES = {**REQUIRED_FILES, **OPTIONAL_FILES}
 
 
 class PlanningPackageLoadError(ValueError):
@@ -39,13 +42,17 @@ class PlanningPackageLoadError(ValueError):
 
 
 def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
-    """Load a six-file planning package into the canonical PlanningOutputPackage schema."""
+    """Load a planning package into the canonical PlanningOutputPackage schema."""
 
     if not package_dir.exists() or not package_dir.is_dir():
         raise FileNotFoundError(f"Planning package directory does not exist: {package_dir}")
 
     paths = {key: package_dir / filename for key, filename in EXPECTED_FILES.items()}
-    missing_files = [str(path) for path in paths.values() if not path.exists()]
+    missing_files = [
+        str(package_dir / filename)
+        for filename in REQUIRED_FILES.values()
+        if not (package_dir / filename).exists()
+    ]
     if missing_files:
         raise FileNotFoundError(
             "Planning package is missing required files: " + ", ".join(missing_files)
@@ -56,7 +63,8 @@ def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
     state_machine_text = _read_text(paths["state_machine"])
     prompt_spec_text = _read_text(paths["prompt_spec"])
     interface_spec_text = _read_text(paths["interface_spec"])
-    pytest_text = _read_text(paths["pytest_file"])
+    pytest_path = paths["pytest_file"]
+    pytest_text = _read_text(pytest_path) if pytest_path.exists() else ""
 
     constitution_sections = _parse_markdown_sections(constitution_text)
     state_machine_sections = _parse_markdown_sections(state_machine_text)
@@ -103,7 +111,7 @@ def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
             evaluation_prompt=_extract_evaluation_prompt(prompt_spec_text, prompt_sections),
         ),
         test_spec=TestSpec(
-            test_file_path=EXPECTED_FILES["pytest_file"],
+            test_file_path=EXPECTED_FILES["pytest_file"] if pytest_path.exists() else "",
             acceptance_criteria=_extract_acceptance_criteria(pytest_text),
         ),
         constraints=_extract_constraints(constitution_sections),
@@ -237,13 +245,43 @@ def _section_text(sections: dict[str, list[str]], query: str) -> str:
 
 
 def _extract_rubric_criteria(text: str) -> list[str]:
+    sections = _parse_markdown_sections(text)
+    rubric_lines: list[str] = []
+    for title, lines in sections.items():
+        if "평가" in title and "루브릭" in title:
+            rubric_lines = lines
+            break
+    if not rubric_lines:
+        rubric_lines = _find_rubric_table_lines(text)
+
     criteria: list[str] = []
-    for line in text.splitlines():
-        if line.startswith("| **"):
+    for line in rubric_lines:
+        stripped = line.strip()
+        if stripped.startswith("| **"):
             match = re.search(r"\*\*(.+?)\*\*", line)
             if match:
-                criteria.append(match.group(1))
+                criterion = match.group(1).strip()
+                if criterion not in {"우수", "양호", "미흡"}:
+                    criteria.append(criterion)
     return criteria
+
+
+def _find_rubric_table_lines(text: str) -> list[str]:
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        if not all(token in stripped for token in ["기준", "우수", "양호", "미흡"]):
+            continue
+
+        table_lines: list[str] = []
+        for table_line in lines[index + 1 :]:
+            if not table_line.strip().startswith("|"):
+                break
+            table_lines.append(table_line)
+        return table_lines
+    return []
 
 
 def _extract_service_grades(text: str) -> dict[str, list[int | None]]:

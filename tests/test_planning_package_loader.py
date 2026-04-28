@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -22,6 +25,7 @@ def test_load_planning_package_reads_fixture_files() -> None:
 
     assert package.service_meta.service_name == "question_quest"
     assert package.service_meta.version == "v0"
+    assert package.evaluation_spec.rubric_criteria == ["구체성", "맥락성", "목적성"]
     assert package.evaluation_spec.grade_levels == ["브론즈", "실버", "골드", "플래티넘"]
     assert package.evaluation_spec.score_rules["rubric_grades"] == ["우수", "양호", "미흡"]
     assert package.evaluation_spec.score_rules["service_grades"]["플래티넘"] == [600, None]
@@ -45,7 +49,6 @@ def test_loader_raises_on_malformed_data_schema_json(tmp_path: Path) -> None:
     (package_dir / "state_machine.md").write_text("# Empty\n", encoding="utf-8")
     (package_dir / "prompt_spec.md").write_text("# Empty\n", encoding="utf-8")
     (package_dir / "interface_spec.md").write_text("# Empty\n", encoding="utf-8")
-    (package_dir / "pytest.py").write_text('"""\nplaceholder\n"""', encoding="utf-8")
 
     with pytest.raises(ValueError):
         load_planning_package(package_dir)
@@ -53,6 +56,22 @@ def test_loader_raises_on_malformed_data_schema_json(tmp_path: Path) -> None:
     intake_result = load_input_intake(package_dir)
     assert intake_result.status == ValidationStatus.FAIL
     assert intake_result.issues[0].code == "PLANNING_PACKAGE_PARSE_FAILED"
+
+
+def test_load_planning_package_treats_pytest_as_optional(tmp_path: Path) -> None:
+    package_dir = tmp_path / "no_pytest_service_v0"
+    shutil.copytree(PACKAGE_DIR, package_dir)
+    (package_dir / "pytest.py").unlink()
+
+    package = load_planning_package(package_dir)
+    intake_result = load_input_intake(package_dir)
+
+    assert package.test_spec.test_file_path == ""
+    assert package.test_spec.acceptance_criteria == []
+    assert intake_result.status == ValidationStatus.AUTO_FIXED
+    assert intake_result.implementation_spec is not None
+    assert intake_result.implementation_spec.acceptance_criteria == []
+    assert not any(path.endswith("pytest.py") for path in intake_result.source_paths)
 
 
 def test_input_intake_generates_runtime_config_and_distribution() -> None:
@@ -95,6 +114,35 @@ def test_input_intake_missing_required_file_returns_fail(tmp_path: Path) -> None
 
     assert intake_result.status == ValidationStatus.FAIL
     assert intake_result.issues[0].code == "PLANNING_PACKAGE_FILE_MISSING"
+
+
+def test_main_writes_input_intake_report_on_fail(tmp_path: Path) -> None:
+    package_dir = tmp_path / "bad_json_service_v0"
+    output_dir = tmp_path / "outputs"
+    shutil.copytree(PACKAGE_DIR, package_dir)
+    (package_dir / "data_schema.json").write_text("{not-json", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "main.py"),
+            "--input-package",
+            str(package_dir),
+            "--output-dir",
+            str(output_dir),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    report_path = output_dir / "input_intake_report.json"
+    assert result.returncode == 1
+    assert "[FAILED] Input Intake Layer" in result.stdout
+    assert report_path.exists()
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "FAIL"
+    assert payload["issues"][0]["code"] == "PLANNING_PACKAGE_PARSE_FAILED"
 
 
 def test_parser_accepts_input_package_option() -> None:
