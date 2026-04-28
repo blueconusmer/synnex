@@ -17,6 +17,7 @@ from schemas.implementation.implementation_spec import (
     parse_markdown_spec,
 )
 from schemas.implementation.prototype_builder import (
+    AppSourceGenerationOutput,
     PrototypeBuilderInput,
     PrototypeBuilderOutput,
 )
@@ -36,6 +37,7 @@ from schemas.implementation.spec_intake import SpecIntakeInput, SpecIntakeOutput
 
 __all__ = [
     "AgentLabel",
+    "AppSourceGenerationOutput",
     "ContentInteractionInput",
     "ContentInteractionOutput",
     "FailureRecord",

@@ -81,6 +81,10 @@ def run_qa_alignment_agent(
         issues.append("Streamlit smoke test did not pass.")
     if package_pytest_ran and not package_pytest_passed:
         issues.append("Planning package pytest.py contract check did not pass.")
+    if input_model.prototype_builder_output.fallback_used:
+        issues.append(
+            "LLM-generated app.py did not complete successfully; fallback template was used."
+        )
 
     return QAAlignmentOutput(
         agent=make_label(
@@ -107,13 +111,30 @@ def run_qa_alignment_agent(
                 f"{'PASS' if package_pytest_passed else 'FAIL' if package_pytest_ran else 'NOT RUN'}"
             ),
             (
+                "Prototype Builder LLM 생성 여부: "
+                f"{input_model.prototype_builder_output.generation_mode}"
+            ),
+            (
+                "fallback template 사용 여부: "
+                f"{'YES' if input_model.prototype_builder_output.fallback_used else 'NO'}"
+            ),
+            (
                 "app.py가 서비스별 콘텐츠 파일을 읽도록 생성되었는지 확인"
             ),
             "실행 로그와 변경 로그가 생성되었는지 확인",
         ],
         qa_issues=issues,
         change_log_entries=[
-            "Prototype Builder Agent는 live 실행 안정성을 위해 검증된 Streamlit 템플릿을 사용하도록 정규화되었다.",
+            (
+                "Prototype Builder Agent는 LLM 기반 app.py 생성을 우선 수행하고, "
+                "실패 시에만 fallback template을 사용하도록 정리되었다."
+            ),
+            (
+                "Prototype Builder generation result: "
+                f"mode={input_model.prototype_builder_output.generation_mode}, "
+                f"fallback_used={input_model.prototype_builder_output.fallback_used}, "
+                f"errors={input_model.prototype_builder_output.builder_errors}."
+            ),
             "QA & Alignment Agent는 현재 단계에서 deterministic summary를 생성한다.",
             (
                 "#12 semantic validator 결과: "
@@ -141,6 +162,12 @@ def run_qa_alignment_agent(
                 "#20 실행 검증 결과: "
                 f"package_pytest={'PASS' if package_pytest_passed else 'FAIL' if package_pytest_ran else 'NOT RUN'}, "
                 f"streamlit_smoke={'PASS' if streamlit_smoke_passed else 'FAIL' if streamlit_smoke_ran else 'NOT RUN'}."
+            ),
+            (
+                "#28 Prototype Builder 결과: "
+                f"generation_mode={input_model.prototype_builder_output.generation_mode}, "
+                f"fallback={'YES' if input_model.prototype_builder_output.fallback_used else 'NO'}, "
+                f"reflection_attempts={input_model.prototype_builder_output.reflection_attempts}."
             ),
             "Streamlit MVP, 실행 로그, QA 결과가 함께 정리되었다.",
         ],

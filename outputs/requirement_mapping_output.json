@@ -4,71 +4,86 @@
     "korean_name": "구현 요구사항 정리 Agent"
   },
   "implementation_targets": [
-    "중학생 대상 AI 질문 능력 향상 훈련 시스템 구현",
-    "주제/상황/원하는 답 형태 3요소 포함 질문 작성 기능",
-    "3개 세션(질문 작성 → 피드백 → 개선) 반복 구조",
-    "다중 선택 및 질문 개선 핵심 기능 구현",
-    "상태 전이 로직 구현 (SESSION_START → QUEST_N_ACTIVE → QUEST_N_FEEDBACK → SESSION_COMPLETED)",
-    "점수 누적 시스템 및 등급 갱신 메커니즘 구현",
-    "중학생 친화적 표현 사용",
-    "5-10분 단위 즉각적 성취감 제공 설계",
-    "답을 바로 주지 않고 질문 개선 유도"
+    "중학생 대상 메타인지 및 질문 구체화 능력 훈련 제공",
+    "주제/상황/원하는 답 형태 3요소 포함 질문 작성 기능 구현",
+    "3개 세션(질문 작성 → 피드백) 순차 진행 구조",
+    "정답 제공 금지 및 질문 개선 유도 메커니즘 적용",
+    "누적 점수 시스템 구현(점수 하락 없음)",
+    "5~10분 단위 세션 설계로 짧은 성취 경험 제공",
+    "중학생 눈높이 맞춘 쉬운 언어 사용(피드백/안내문구 등)",
+    "Streamlit 프레임워크 기반 구현"
   ],
   "file_plan": [
     {
-      "path": "data_schema.json",
-      "purpose": "서비스 데이터 구조 및 유효성 검증 기준 정의",
+      "path": "state_machine.md",
+      "purpose": "상태 전이 로직 검증 및 구현 기준 정의",
       "producing_agent": "Spec Intake Agent"
     },
     {
-      "path": "state_machine.md",
-      "purpose": "세션 상태 전이 로직 및 조건 명시",
+      "path": "data_schema.json",
+      "purpose": "데이터 스키마 검증 및 구현 기준 정의",
       "producing_agent": "Spec Intake Agent"
     },
     {
       "path": "constitution.md",
-      "purpose": "점수 누적 규칙, 등급 갱신 조건, 중학생 친화적 표현 가이드라인 정의",
+      "purpose": "점수·등급 규칙 검증 및 구현 기준 정의",
       "producing_agent": "Spec Intake Agent"
     },
     {
       "path": "prompt_spec.md",
-      "purpose": "프롬프트 출력 형식 및 질문 개선 유도 메시지 템플릿 정의",
+      "purpose": "프롬프트 출력 형식 검증 및 구현 기준 정의",
       "producing_agent": "Spec Intake Agent"
     },
     {
       "path": "interface_spec.md",
-      "purpose": "API 응답 형식, 오류 처리, 데이터 변환 규칙 명시",
+      "purpose": "API 응답 형식 검증 및 구현 기준 정의",
       "producing_agent": "Spec Intake Agent"
+    },
+    {
+      "path": "app.py",
+      "purpose": "Streamlit 기반 세션 진행 및 UI 구현",
+      "producing_agent": "Streamlit Implementation Agent"
+    },
+    {
+      "path": "api/session.py",
+      "purpose": "/api/session/start, /api/session/result API 구현",
+      "producing_agent": "API Implementation Agent"
+    },
+    {
+      "path": "api/quest.py",
+      "purpose": "/api/quest/submit API 구현",
+      "producing_agent": "API Implementation Agent"
     }
   ],
   "quiz_generation_requirements": {
-    "quiz_type_count": 2,
+    "quiz_type_count": 1,
     "items_per_type": 1,
-    "total_items": 2,
+    "total_items": 1,
     "required_fields": [
-      "topic",
-      "context",
-      "desired_answer_type",
-      "user_question",
-      "feedback_type",
-      "improved_question"
+      "주제",
+      "상황",
+      "원하는 답 형태"
     ]
   },
   "app_constraints": [
-    "Streamlit 기반 구현으로 3개 세션 반복 구조 필수",
-    "API 엔드포인트(/api/session/start, /api/quest/submit, /api/session/result) 구현 필수",
-    "점수 감소 없이 누적 시스템 구현",
-    "중학생 친화적 표현 사용(어려운 어휘 배제)",
-    "즉각적 성취감을 위한 5-10분 세션 설계",
-    "답을 바로 주지 않고 질문 개선 유도"
+    "Streamlit 프레임워크 기반 구현",
+    "5~10분 단위 세션 설계로 짧은 성취 경험 제공",
+    "중학생 눈높이 맞춘 쉬운 언어 사용(피드백/안내문구 등)",
+    "정답 제공 금지 및 질문 개선 유도 메커니즘 적용",
+    "누적 점수 시스템 구현(점수 하락 없음)",
+    "3개 세션(질문 작성 → 피드백) 순차 진행 구조",
+    "주제/상황/원하는 답 형태 3요소 포함 질문 작성 기능 구현"
   ],
   "test_strategy": [
-    "data_schema.json에 정의된 데이터 스키마 검증",
-    "state_machine.md에 명시된 상태 전이 로직 검증",
-    "constitution.md에 정의된 점수·등급 규칙 검증",
-    "prompt_spec.md에 명시된 프롬프트 출력 형식 검증",
-    "interface_spec.md에 정의된 API 응답 형식 검증",
-    "다중 선택 및 질문 개선 기능 통합 테스트",
-    "세션 반복 구조 및 상태 전이 엔드투엔드 테스트"
+    "data_schema.json 스키마 준수 여부 검증",
+    "state_machine.md 상태 전이 로직 정확성 검증",
+    "constitution.md ⑦ 점수·등급 규칙 일치성 검증",
+    "prompt_spec.md 프롬프트 출력 형식 준수 검증",
+    "interface_spec.md API 응답 형식 검증",
+    "S0-S5 UI 구성 요소 기능 테스트",
+    "API 엔드포인트(/api/session/start, /api/quest/submit, /api/session/result) 통합 테스트",
+    "질문 제출 → 피드백 → 결과 화면 상태 전이 테스트",
+    "점수 누적 및 등급 변경 로직 테스트",
+    "질문 개선 기능 동작 검증"
   ]
 }

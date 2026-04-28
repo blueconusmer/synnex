@@ -10,24 +10,28 @@
     "configured content type 수(2) 일치 여부: PASS",
     "learning_dimension 허용값 여부: PASS",
     "semantic validator 통과 여부: PASS",
-    "재생성 발생 여부: NO",
+    "재생성 발생 여부: YES",
     "app.py Streamlit smoke test 여부: PASS",
     "package pytest.py 통과 여부: PASS",
+    "Prototype Builder LLM 생성 여부: llm_generated",
+    "fallback template 사용 여부: NO",
     "app.py가 서비스별 콘텐츠 파일을 읽도록 생성되었는지 확인",
     "실행 로그와 변경 로그가 생성되었는지 확인"
   ],
   "qa_issues": [],
   "change_log_entries": [
-    "Prototype Builder Agent는 live 실행 안정성을 위해 검증된 Streamlit 템플릿을 사용하도록 정규화되었다.",
+    "Prototype Builder Agent는 LLM 기반 app.py 생성을 우선 수행하고, 실패 시에만 fallback template을 사용하도록 정리되었다.",
+    "Prototype Builder generation result: mode=llm_generated, fallback_used=False, errors=[].",
     "QA & Alignment Agent는 현재 단계에서 deterministic summary를 생성한다.",
-    "#12 semantic validator 결과: expected_total=3, actual_total=3, configured_content_types=2, content_types_valid=True, learning_dimension_valid=True, semantic_validator_passed=True, regeneration_count=0, streamlit_smoke=PASS, package_pytest=PASS."
+    "#12 semantic validator 결과: expected_total=3, actual_total=3, configured_content_types=2, content_types_valid=True, learning_dimension_valid=True, semantic_validator_passed=True, regeneration_count=1, streamlit_smoke=PASS, package_pytest=PASS."
   ],
   "final_summary_points": [
     "교육 서비스 구현팀 6-Agent 파이프라인이 실행되었다.",
     "2개 content type, 총 3문항이 생성되었다.",
     "세션 구성: multiple_choice 1 + question_improvement 2.",
-    "#12 검증 결과: semantic validator=PASS, 재생성=없음.",
+    "#12 검증 결과: semantic validator=PASS, 재생성=1건.",
     "#20 실행 검증 결과: package_pytest=PASS, streamlit_smoke=PASS.",
+    "#28 Prototype Builder 결과: generation_mode=llm_generated, fallback=NO, reflection_attempts=0.",
     "Streamlit MVP, 실행 로그, QA 결과가 함께 정리되었다."
   ]
 }

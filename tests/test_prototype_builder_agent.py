@@ -28,7 +28,7 @@ def _build_package_content_output(fake: FakeLLMClient, service_name: str) -> Con
     return fake.generate_json(prompt=prompt, response_model=ContentInteractionOutput)
 
 
-def test_prototype_builder_generates_quest_template_from_planning_package() -> None:
+def test_prototype_builder_materializes_llm_generated_app_from_planning_package() -> None:
     fake = FakeLLMClient()
     package = load_planning_package(PACKAGE_DIR)
     spec = planning_package_to_implementation_spec(package, PACKAGE_DIR)
@@ -51,16 +51,75 @@ def test_prototype_builder_generates_quest_template_from_planning_package() -> N
     assert output.target_framework == "streamlit"
     assert output.is_supported is True
     assert output.unsupported_reason == ""
+    assert output.generation_mode == "llm_generated"
+    assert output.fallback_used is False
+    assert "LLM_GENERATED_APP_MARKER" in source
     assert "def api_session_start()" in source
     assert "def api_quest_submit(user_response: Any)" in source
     assert "def api_session_result()" in source
-    assert "SCREENS = ['S0', 'S1', 'S2', 'S3', 'S4', 'S5']" in source
-    assert "SCORE_RULES =" in source
-    assert "GRADE_LEVELS =" in source
-    assert "GRADE_THRESHOLDS =" in source
     assert "question_quest_contents.json" in source
     assert "load_planning_package" not in source
     assert "constitution.md" not in source
+
+    prompt = fake.prompts[-1]
+    assert "# Interface Spec" in prompt
+    assert "# State Machine" in prompt
+    assert '"service_name": "question_quest"' in prompt or "service_name: question_quest" in prompt
+    assert "data_schema" in prompt
+    assert "prompt_spec" in prompt
+    assert "target_framework: streamlit" in prompt
+    assert package.service_meta.purpose[:20] in prompt
+
+
+def test_prototype_builder_uses_fallback_when_llm_call_fails() -> None:
+    fake = FakeLLMClient(fail_app_generation=True)
+    package = load_planning_package(PACKAGE_DIR)
+    spec = planning_package_to_implementation_spec(package, PACKAGE_DIR)
+
+    output = run_prototype_builder_agent(
+        PrototypeBuilderInput(
+            spec_intake_output=fake.generate_json(prompt="", response_model=SpecIntakeOutput),
+            requirement_mapping_output=fake.generate_json(
+                prompt="",
+                response_model=RequirementMappingOutput,
+            ),
+            content_interaction_output=_build_package_content_output(fake, spec.service_name),
+            implementation_spec=spec,
+        ),
+        fake,
+    )
+
+    assert output.generation_mode == "fallback_template"
+    assert output.fallback_used is True
+    assert "LLM_CALL_FAILED" in output.builder_errors
+    assert "FALLBACK_USED" in output.builder_errors
+    assert "LLM_CALL_FAILED" in output.fallback_reason
+    assert "def api_session_start()" in output.generated_files[0].content
+
+
+def test_prototype_builder_uses_fallback_when_llm_output_invalid() -> None:
+    fake = FakeLLMClient(invalid_app_generation=True)
+    package = load_planning_package(PACKAGE_DIR)
+    spec = planning_package_to_implementation_spec(package, PACKAGE_DIR)
+
+    output = run_prototype_builder_agent(
+        PrototypeBuilderInput(
+            spec_intake_output=fake.generate_json(prompt="", response_model=SpecIntakeOutput),
+            requirement_mapping_output=fake.generate_json(
+                prompt="",
+                response_model=RequirementMappingOutput,
+            ),
+            content_interaction_output=_build_package_content_output(fake, spec.service_name),
+            implementation_spec=spec,
+        ),
+        fake,
+    )
+
+    assert output.generation_mode == "fallback_template"
+    assert output.fallback_used is True
+    assert "LLM_OUTPUT_INVALID" in output.builder_errors
+    assert "FALLBACK_USED" in output.builder_errors
+    assert "LLM_OUTPUT_INVALID" in output.fallback_reason
 
 
 def test_prototype_builder_returns_unsupported_output_for_react() -> None:

@@ -6,9 +6,11 @@ import re
 from orchestrator.app_source import build_streamlit_app_source
 from schemas.implementation.content_interaction import ContentInteractionOutput
 from schemas.implementation.common import QuizItem
+from schemas.implementation.prototype_builder import AppSourceGenerationOutput
 from schemas.implementation.prototype_builder import PrototypeBuilderOutput
 from schemas.implementation.qa_alignment import QAAlignmentOutput
 from schemas.implementation.requirement_mapping import RequirementMappingOutput
+from schemas.implementation.run_test_and_fix import RunTestAndFixOutput
 from schemas.implementation.spec_intake import SpecIntakeOutput
 
 DEFAULT_CONTENT_TYPES = [
@@ -23,7 +25,24 @@ DEFAULT_LEARNING_DIMENSIONS = ["구체성", "맥락성", "목적성", "종합성
 class FakeLLMClient:
     """Deterministic fake client used in automated tests."""
 
+    def __init__(
+        self,
+        *,
+        app_source: str | None = None,
+        fail_app_generation: bool = False,
+        invalid_app_generation: bool = False,
+        patch_source: str | None = None,
+        no_patch: bool = False,
+    ) -> None:
+        self.app_source = app_source
+        self.fail_app_generation = fail_app_generation
+        self.invalid_app_generation = invalid_app_generation
+        self.patch_source = patch_source
+        self.no_patch = no_patch
+        self.prompts: list[str] = []
+
     def generate_json(self, *, prompt: str, response_model, system_prompt: str | None = None):
+        self.prompts.append(prompt)
         response_name = response_model.__name__
 
         if response_name == SpecIntakeOutput.__name__:
@@ -207,6 +226,27 @@ class FakeLLMClient:
                 }
             )
 
+        if response_name == AppSourceGenerationOutput.__name__:
+            if self.fail_app_generation:
+                raise RuntimeError("fake app generation failure")
+            content_filename = _extract_scalar_from_prompt(prompt, "content_filename") or "quiz_contents.json"
+            if self.invalid_app_generation:
+                return response_model.model_validate(
+                    {
+                        "app_path": "app.py",
+                        "app_source": "print('not a streamlit app')",
+                        "generation_notes": ["invalid app source for fallback test"],
+                    }
+                )
+            return response_model.model_validate(
+                {
+                    "app_path": "app.py",
+                    "app_source": self.app_source
+                    or _build_llm_generated_streamlit_source(content_filename),
+                    "generation_notes": ["fake LLM generated deterministic Streamlit app.py"],
+                }
+            )
+
         if response_name == PrototypeBuilderOutput.__name__:
             return response_model.model_validate(
                 {
@@ -233,6 +273,56 @@ class FakeLLMClient:
                     "integration_notes": [
                         "콘텐츠 JSON은 app.py와 같은 디렉토리의 outputs 폴더에 있어야 한다."
                     ],
+                }
+            )
+
+        if response_name == RunTestAndFixOutput.__name__:
+            if self.no_patch:
+                return response_model.model_validate(
+                    {
+                        "agent": {
+                            "english_name": "Run Test And Fix Agent",
+                            "korean_name": "실행·테스트·수정 Agent",
+                        },
+                        "checks_run": ["py_compile"],
+                        "failures": [
+                            {
+                                "check_name": "py_compile",
+                                "summary": "py_compile failed",
+                                "details": "fake failure",
+                            }
+                        ],
+                        "fixes_applied": [],
+                        "remaining_risks": ["No deterministic patch was provided."],
+                        "patched_files": [],
+                        "should_retry_builder": False,
+                    }
+                )
+            return response_model.model_validate(
+                {
+                    "agent": {
+                        "english_name": "Run Test And Fix Agent",
+                        "korean_name": "실행·테스트·수정 Agent",
+                    },
+                    "checks_run": ["py_compile"],
+                    "failures": [
+                        {
+                            "check_name": "py_compile",
+                            "summary": "py_compile failed",
+                            "details": "fake failure",
+                        }
+                    ],
+                    "fixes_applied": ["Applied minimal app.py syntax patch."],
+                    "remaining_risks": [],
+                    "patched_files": [
+                        {
+                            "path": "app.py",
+                            "reason": "Fix generated app syntax error.",
+                            "content": self.patch_source
+                            or _build_llm_generated_streamlit_source("quiz_contents.json"),
+                        }
+                    ],
+                    "should_retry_builder": True,
                 }
             )
 
@@ -580,3 +670,70 @@ def _extract_scalar_from_prompt(prompt: str, field_name: str) -> str:
     if not match:
         return ""
     return match.group(1).strip()
+
+
+def _build_llm_generated_streamlit_source(content_filename: str) -> str:
+    return f'''from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import streamlit as st
+
+# LLM_GENERATED_APP_MARKER
+CONTENT_FILENAME = "{content_filename}"
+APP_DIR = Path(__file__).resolve().parent
+OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
+FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
+CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
+
+
+def resolve_content_path() -> Path | None:
+    for candidate in CONTENT_CANDIDATE_PATHS:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def load_contents() -> dict[str, Any]:
+    content_path = resolve_content_path()
+    if content_path is None:
+        return {{}}
+    return json.loads(content_path.read_text(encoding="utf-8"))
+
+
+def api_session_start() -> dict[str, Any]:
+    data = load_contents()
+    return {{"session_id": "fake-session", "quests": data.get("items", [])[:3]}}
+
+
+def api_quest_submit(user_response: Any) -> dict[str, Any]:
+    return {{
+        "answer_id": "fake-answer",
+        "evaluation": {{"evaluation_type": "correctness", "feedback": "테스트 응답입니다."}},
+        "earned_score": 0,
+        "is_session_complete": False,
+        "user_response": user_response,
+    }}
+
+
+def api_session_result() -> dict[str, Any]:
+    return {{"session_score": 0, "current_grade": "bronze"}}
+
+
+def main() -> None:
+    st.set_page_config(page_title="LLM Generated MVP", layout="wide")
+    st.title("LLM Generated MVP")
+    data = load_contents()
+    if not data:
+        st.warning("콘텐츠 파일을 찾지 못했습니다.")
+        return
+    st.write(f"총 {{len(data.get('items', []))}}개 콘텐츠를 읽었습니다.")
+    for item in data.get("items", []):
+        st.markdown(f"### {{item.get('title', item.get('item_id', 'item'))}}")
+        st.write(item.get("question", ""))
+
+
+main()
+'''

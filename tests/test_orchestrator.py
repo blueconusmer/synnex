@@ -76,6 +76,7 @@ def test_pipeline_with_fake_llm_generates_expected_outputs(tmp_path: Path) -> No
     assert quiz_contents["semantic_validation"]["quiz_type_distribution_valid"] is True
     assert quiz_contents["semantic_validation"]["learning_dimension_values_valid"] is True
     assert (tmp_path / "app.py").exists()
+    assert "LLM_GENERATED_APP_MARKER" in (tmp_path / "app.py").read_text(encoding="utf-8")
 
 
 def test_pipeline_with_planning_package_generates_service_named_contents(tmp_path: Path) -> None:
@@ -115,6 +116,7 @@ def test_pipeline_with_planning_package_generates_service_named_contents(tmp_pat
         "question_improvement",
     ]
     app_source = (tmp_path / "app.py").read_text(encoding="utf-8")
+    assert "LLM_GENERATED_APP_MARKER" in app_source
     assert "def api_session_start()" in app_source
     assert "def api_quest_submit(user_response: Any)" in app_source
     assert "def api_session_result()" in app_source
@@ -233,3 +235,116 @@ def test_pipeline_records_invalid_target_framework_reason(tmp_path: Path) -> Non
     assert "is not recognized" in prototype_output["unsupported_reason"]
     assert "Known values: fastapi, nextjs, react, streamlit." in prototype_output["unsupported_reason"]
     assert "[UNSUPPORTED] target_framework=stramlit" in execution_log
+
+
+def test_pipeline_reflection_patches_compile_failure(tmp_path: Path) -> None:
+    spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
+    content_filename = build_content_filename(spec.service_name)
+    broken_source = (
+        "import streamlit as st\n"
+        f'CONTENT_FILENAME = "{content_filename}"\n'
+        "st.title('broken')\n"
+        "def broken(:\n"
+        "    pass\n"
+    )
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(app_source=broken_source),
+        spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    pipeline.run()
+
+    output_dir = tmp_path / "outputs"
+    prototype_output = json.loads(
+        (output_dir / "prototype_builder_output.json").read_text(encoding="utf-8")
+    )
+    run_test_output = json.loads(
+        (output_dir / "run_test_and_fix_output.json").read_text(encoding="utf-8")
+    )
+    app_source = (tmp_path / "app.py").read_text(encoding="utf-8")
+
+    assert prototype_output["generation_mode"] == "llm_generated"
+    assert prototype_output["fallback_used"] is False
+    assert prototype_output["reflection_attempts"] == 1
+    assert "APP_PY_COMPILE_FAILED" in "\n".join(run_test_output["fixes_applied"])
+    assert "LLM_GENERATED_APP_MARKER" in app_source
+
+
+def test_pipeline_falls_back_when_patch_is_not_available(tmp_path: Path) -> None:
+    spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
+    content_filename = build_content_filename(spec.service_name)
+    broken_source = (
+        "import streamlit as st\n"
+        f'CONTENT_FILENAME = "{content_filename}"\n'
+        "st.title('broken')\n"
+        "def broken(:\n"
+        "    pass\n"
+    )
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(app_source=broken_source, no_patch=True),
+        spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    pipeline.run()
+
+    output_dir = tmp_path / "outputs"
+    prototype_output = json.loads(
+        (output_dir / "prototype_builder_output.json").read_text(encoding="utf-8")
+    )
+    run_test_output = json.loads(
+        (output_dir / "run_test_and_fix_output.json").read_text(encoding="utf-8")
+    )
+    final_summary = (output_dir / "final_summary.md").read_text(encoding="utf-8")
+
+    assert prototype_output["generation_mode"] == "fallback_template"
+    assert prototype_output["fallback_used"] is True
+    assert "PATCH_FAILED" in prototype_output["builder_errors"]
+    assert "FALLBACK_USED" in prototype_output["builder_errors"]
+    assert "FALLBACK_USED" in "\n".join(run_test_output["fixes_applied"])
+    assert "fallback_used: True" in final_summary
+    assert "LLM-generated app.py는 실패했고 fallback template" in final_summary
+
+
+def test_pipeline_falls_back_when_patch_still_fails(tmp_path: Path) -> None:
+    spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
+    content_filename = build_content_filename(spec.service_name)
+    broken_source = (
+        "import streamlit as st\n"
+        f'CONTENT_FILENAME = "{content_filename}"\n'
+        "st.title('broken')\n"
+        "def broken(:\n"
+        "    pass\n"
+    )
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(app_source=broken_source, patch_source=broken_source),
+        spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    pipeline.run()
+
+    output_dir = tmp_path / "outputs"
+    prototype_output = json.loads(
+        (output_dir / "prototype_builder_output.json").read_text(encoding="utf-8")
+    )
+    run_test_output = json.loads(
+        (output_dir / "run_test_and_fix_output.json").read_text(encoding="utf-8")
+    )
+
+    assert prototype_output["generation_mode"] == "fallback_template"
+    assert prototype_output["fallback_used"] is True
+    assert prototype_output["reflection_attempts"] == 1
+    assert "PATCH_FAILED" in prototype_output["builder_errors"]
+    assert "FALLBACK_USED" in prototype_output["builder_errors"]
+    assert "FALLBACK_USED" in "\n".join(run_test_output["fixes_applied"])

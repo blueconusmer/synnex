@@ -8,7 +8,11 @@ import time
 from pathlib import Path
 
 from agents.implementation.content_interaction_agent import run_content_interaction_agent
-from agents.implementation.prototype_builder_agent import run_prototype_builder_agent
+from agents.implementation.prototype_builder_agent import (
+    FALLBACK_USED,
+    build_fallback_app_source,
+    run_prototype_builder_agent,
+)
 from agents.implementation.qa_alignment_agent import run_qa_alignment_agent
 from agents.implementation.requirement_mapping_agent import run_requirement_mapping_agent
 from agents.implementation.run_test_and_fix_agent import run_run_test_and_fix_agent
@@ -139,10 +143,17 @@ class ImplementationPipeline:
                 self.llm_client,
             ),
         )
+        self._annotate_failure_codes(run_test_and_fix_output, local_checks)
 
         if run_test_and_fix_output.patched_files and run_test_and_fix_output.should_retry_builder:
+            prototype_builder_output.reflection_attempts += 1
+            self._save_json(
+                self.output_dir / "prototype_builder_output.json",
+                prototype_builder_output,
+            )
             self._materialize_patched_files(run_test_and_fix_output.patched_files)
             local_checks = self._run_local_checks()
+            first_attempt_output = run_test_and_fix_output
             run_test_and_fix_output = run_run_test_and_fix_agent(
                 RunTestAndFixInput(
                     prototype_builder_output=prototype_builder_output,
@@ -150,9 +161,33 @@ class ImplementationPipeline:
                 ),
                 self.llm_client,
             )
+            self._annotate_failure_codes(run_test_and_fix_output, local_checks)
+            run_test_and_fix_output.fixes_applied = _dedupe_preserve_order(
+                [
+                    *first_attempt_output.fixes_applied,
+                    *run_test_and_fix_output.fixes_applied,
+                ]
+            )
+            run_test_and_fix_output.remaining_risks = _dedupe_preserve_order(
+                [
+                    *first_attempt_output.remaining_risks,
+                    *run_test_and_fix_output.remaining_risks,
+                ]
+            )
             self._save_json(
                 self.output_dir / "run_test_and_fix_output.json",
                 run_test_and_fix_output,
+            )
+
+        if self._has_failed_checks(local_checks):
+            run_test_and_fix_output = self._apply_fallback_template_after_reflection(
+                spec_intake_output=spec_intake_output,
+                requirement_mapping_output=requirement_mapping_output,
+                content_interaction_output=content_interaction_output,
+                implementation_spec=spec,
+                prototype_builder_output=prototype_builder_output,
+                previous_run_test_and_fix_output=run_test_and_fix_output,
+                failed_checks=local_checks,
             )
 
         qa_alignment_output = self._run_stage(
@@ -179,6 +214,7 @@ class ImplementationPipeline:
             spec_intake_output.service_summary,
             requirement_mapping_output.implementation_targets,
             content_interaction_output,
+            prototype_builder_output,
             run_test_and_fix_output,
             qa_alignment_output.final_summary_points,
         )
@@ -292,6 +328,110 @@ class ImplementationPipeline:
             target_path.write_text(_ensure_trailing_newline(patched_file.content), encoding="utf-8")
             self._log(f"[PATCHED] {target_path}")
 
+    def _apply_fallback_template_after_reflection(
+        self,
+        *,
+        spec_intake_output,
+        requirement_mapping_output,
+        content_interaction_output,
+        implementation_spec: ImplementationSpec,
+        prototype_builder_output,
+        previous_run_test_and_fix_output,
+        failed_checks: list[LocalCheckResult],
+    ):
+        failure_codes = self._failure_codes_for_checks(failed_checks)
+        fallback_reason = (
+            "PATCH_FAILED: local checks still failed after the allowed reflection attempt."
+            if prototype_builder_output.reflection_attempts
+            else "PATCH_FAILED: no valid patch was produced for failed local checks."
+        )
+        self._log(f"[FALLBACK] {fallback_reason}")
+
+        fallback_source = build_fallback_app_source(
+            PrototypeBuilderInput(
+                spec_intake_output=spec_intake_output,
+                requirement_mapping_output=requirement_mapping_output,
+                content_interaction_output=content_interaction_output,
+                implementation_spec=implementation_spec,
+            )
+        )
+        prototype_builder_output.generation_mode = "fallback_template"
+        prototype_builder_output.fallback_used = True
+        prototype_builder_output.fallback_reason = fallback_reason
+        prototype_builder_output.builder_errors = _dedupe_preserve_order(
+            [
+                *prototype_builder_output.builder_errors,
+                *failure_codes,
+                "PATCH_FAILED",
+                FALLBACK_USED,
+            ]
+        )
+        for generated_file in prototype_builder_output.generated_files:
+            if Path(generated_file.path).name == "app.py":
+                generated_file.content = fallback_source
+                generated_file.description = (
+                    "Deterministic Streamlit fallback app used after LLM/patch failure."
+                )
+                break
+        else:
+            from schemas.implementation.common import GeneratedFile
+
+            prototype_builder_output.generated_files.append(
+                GeneratedFile(
+                    path="app.py",
+                    description="Deterministic Streamlit fallback app used after LLM/patch failure.",
+                    content=fallback_source,
+                )
+            )
+        prototype_builder_output.runtime_notes = _dedupe_preserve_order(
+            [
+                *prototype_builder_output.runtime_notes,
+                "LLM-generated app.py 또는 patch 결과가 실패해 fallback template을 적용했다.",
+            ]
+        )
+        prototype_builder_output.integration_notes = _dedupe_preserve_order(
+            [
+                *prototype_builder_output.integration_notes,
+                "Fallback template 사용은 LLM-generated app.py 성공으로 기록하지 않는다.",
+            ]
+        )
+        self._save_json(
+            self.output_dir / "prototype_builder_output.json",
+            prototype_builder_output,
+        )
+        self._materialize_generated_files(prototype_builder_output.generated_files)
+        fallback_checks = self._run_local_checks()
+        fallback_run_output = run_run_test_and_fix_agent(
+            RunTestAndFixInput(
+                prototype_builder_output=prototype_builder_output,
+                check_results=fallback_checks,
+            ),
+            self.llm_client,
+        )
+        self._annotate_failure_codes(fallback_run_output, fallback_checks)
+        fallback_run_output.fixes_applied = _dedupe_preserve_order(
+            [
+                *previous_run_test_and_fix_output.fixes_applied,
+                f"{FALLBACK_USED}: {fallback_reason}",
+                *fallback_run_output.fixes_applied,
+            ]
+        )
+        fallback_run_output.remaining_risks = _dedupe_preserve_order(
+            [
+                *previous_run_test_and_fix_output.remaining_risks,
+                *fallback_run_output.remaining_risks,
+                (
+                    "LLM-generated app.py는 최종 local checks를 통과하지 못했고 "
+                    "fallback template으로 실행 가능 상태를 확보했다."
+                ),
+            ]
+        )
+        self._save_json(
+            self.output_dir / "run_test_and_fix_output.json",
+            fallback_run_output,
+        )
+        return fallback_run_output
+
     def _run_local_checks(self) -> list[LocalCheckResult]:
         checks = [self._run_py_compile_check()]
         package_pytest_check = self._run_package_contract_check()
@@ -300,6 +440,35 @@ class ImplementationPipeline:
         if self.enable_streamlit_smoke:
             checks.append(self._run_streamlit_smoke_check())
         return checks
+
+    @staticmethod
+    def _has_failed_checks(checks: list[LocalCheckResult]) -> bool:
+        return any(not check.passed for check in checks)
+
+    @staticmethod
+    def _failure_codes_for_checks(checks: list[LocalCheckResult]) -> list[str]:
+        codes: list[str] = []
+        for check in checks:
+            if check.passed:
+                continue
+            if check.check_name == "py_compile":
+                codes.append("APP_PY_COMPILE_FAILED")
+            elif check.check_name == "streamlit_smoke":
+                codes.append("STREAMLIT_SMOKE_FAILED")
+            else:
+                codes.append(f"{check.check_name.upper()}_FAILED")
+        return codes
+
+    def _annotate_failure_codes(self, run_output, checks: list[LocalCheckResult]) -> None:
+        failure_codes = self._failure_codes_for_checks(checks)
+        if not failure_codes:
+            return
+        run_output.fixes_applied = _dedupe_preserve_order(
+            [
+                *run_output.fixes_applied,
+                "Failure codes observed: " + ", ".join(failure_codes),
+            ]
+        )
 
     def _run_py_compile_check(self) -> LocalCheckResult:
         command = f"{self.python_executable} -m py_compile {self.app_target_path}"
@@ -539,6 +708,7 @@ class ImplementationPipeline:
         service_summary: str,
         implementation_targets: list[str],
         content_output,
+        prototype_builder_output,
         run_test_and_fix_output,
         final_summary_points: list[str],
     ) -> None:
@@ -592,6 +762,25 @@ class ImplementationPipeline:
             ]
         )
         lines.extend(f"- 유형: {quiz_type}" for quiz_type in quiz_types)
+        lines.extend(
+            [
+                "",
+                "## Prototype Builder 결과",
+                f"- target_framework: {prototype_builder_output.target_framework}",
+                f"- generation_mode: {prototype_builder_output.generation_mode}",
+                f"- fallback_used: {prototype_builder_output.fallback_used}",
+                f"- reflection_attempts: {prototype_builder_output.reflection_attempts}",
+            ]
+        )
+        if prototype_builder_output.fallback_used:
+            lines.append(f"- fallback_reason: {prototype_builder_output.fallback_reason}")
+            lines.append(
+                "- LLM-generated app.py는 실패했고 fallback template으로 실행 가능 상태를 확보했다."
+            )
+        if prototype_builder_output.builder_errors:
+            lines.append(
+                "- builder_errors: " + ", ".join(prototype_builder_output.builder_errors)
+            )
         if semantic_summary is not None:
             expected_type_count = len(
                 implementation_spec.core_features or quiz_types
