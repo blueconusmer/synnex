@@ -118,6 +118,7 @@ def test_pipeline_with_planning_package_generates_service_named_contents(tmp_pat
     assert "def api_quest_submit(user_response: Any)" in app_source
     assert "def api_session_result()" in app_source
     assert content_filename in app_source
+    assert (tmp_path / "app.py").read_bytes().endswith(b"\n")
 
 
 def test_pipeline_records_input_intake_planning_review_warning(tmp_path: Path) -> None:

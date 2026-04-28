@@ -6,69 +6,64 @@
   "implementation_targets": [
     "중학생 대상 메타인지 및 질문 구체화 능력 훈련 제공",
     "주제/상황/원하는 답의 형태 3요소를 포함한 질문 작성 기능 구현",
-    "3개 세션(5~10분)으로 구성된 질문 개선 훈련 프로세스",
-    "다중 선택 및 질문 개선 기능 포함",
-    "상태 전이 로직(SESSION_START → QUEST_N_ACTIVE → QUEST_N_FEEDBACK) 구현",
-    "점수 누적 시스템 및 등급 갱신 메커니즘",
-    "중학생 눈높이에 맞춘 쉬운 표현 사용",
-    "API 엔드포인트(/api/session/start, /api/quest/submit, /api/session/result) 구현",
+    "다중 선택(multiple_choice) 및 질문 개선(question_improvement) 핵심 기능 포함",
+    "3개 세션(SESSION_START → QUEST_N_ACTIVE → QUEST_N_FEEDBACK) 상태 전이 구조 구현",
+    "점수 누적 시스템(감소 없음) 및 등급 갱신 메커니즘 적용",
+    "중학생 눈높이에 맞춘 쉬운 표현 사용(피드백/안내/평가)",
+    "API 엔드포인트: /api/session/start, /api/quest/submit, /api/session/result",
     "학습 목표: 구체성, 맥락성, 목적성 달성"
   ],
   "file_plan": [
     {
       "path": "data_schema.json",
-      "purpose": "데이터 스키마 검증 및 세션/질문 데이터 구조 정의",
+      "purpose": "데이터 스키마 검증 및 API 요청/응답 구조 정의",
       "producing_agent": "Spec Intake Agent"
     },
     {
       "path": "state_machine.md",
-      "purpose": "상태 전이 로직(SESSION_START → QUEST_N_ACTIVE → QUEST_N_FEEDBACK) 문서화",
+      "purpose": "3개 세션 상태 전이 로직 및 전이 조건 문서화",
       "producing_agent": "Spec Intake Agent"
     },
     {
       "path": "constitution.md",
-      "purpose": "점수 누적 시스템 및 등급 갱신 규칙 명시",
+      "purpose": "점수 누적 규칙, 등급 갱신 메커니즘, 피드백 기준 명시",
       "producing_agent": "Spec Intake Agent"
     },
     {
       "path": "prompt_spec.md",
-      "purpose": "프롬프트 출력 형식(피드백/안내문구/평가 결과) 표준화",
+      "purpose": "프롬프트 출력 형식 및 중학생 친화적 표현 가이드라인 정의",
       "producing_agent": "Spec Intake Agent"
     },
     {
       "path": "interface_spec.md",
-      "purpose": "API 응답 형식(/api/session/start, /api/quest/submit, /api/session/result) 검증",
+      "purpose": "API 엔드포인트 응답 형식 및 오류 처리 규칙 명시",
       "producing_agent": "Spec Intake Agent"
     }
   ],
   "quiz_generation_requirements": {
     "quiz_type_count": 2,
-    "items_per_type": 3,
-    "total_items": 6,
+    "items_per_type": 5,
+    "total_items": 10,
     "required_fields": [
       "주제",
       "상황",
       "원하는 답의 형태",
-      "질문 유형(multiple_choice/question_improvement)",
-      "난이도(중학생 눈높이)",
-      "학습 목표(구체성/맥락성/목적성)"
+      "정답",
+      "피드백"
     ]
   },
   "app_constraints": [
-    "세션당 5~10분 제한 구현",
-    "점수 감소 없음(누적만 가능)",
-    "중학생 친화적인 언어 사용(피드백/안내문구/평가 결과)",
-    "3개 세션 완료 시 최종 결과 제공",
-    "API 엔드포인트 3개 필수 구현(/api/session/start, /api/quest/submit, /api/session/result)",
-    "상태 전이 로직 준수(SESSION_START → QUEST_N_ACTIVE → QUEST_N_FEEDBACK)"
+    "세션 상태 전이 시 데이터 손실 방지",
+    "점수 시스템은 감소 없이 누적만 허용",
+    "API 응답은 JSON 스키마 검증 필수",
+    "프롬프트 출력은 중학생 수준의 쉬운 표현 사용",
+    "피드백 메시지는 학습 목표(구체성, 맥락성, 목적성) 반영"
   ],
   "test_strategy": [
-    "data_schema.json으로 세션/질문 데이터 유효성 검증",
-    "state_machine.md로 상태 전이 로직 테스트",
-    "constitution.md로 점수 누적 및 등급 갱신 규칙 검증",
-    "prompt_spec.md로 프롬프트 출력 형식 일관성 확인",
-    "interface_spec.md로 API 응답 형식 준수 여부 테스트",
-    "실제 중학생 사용자 테스트를 통한 언어 적합성 평가",
-    "3개 세션 전체 흐름 통합 테스트"
+    "data_schema.json으로 API 요청/응답 유효성 검증",
+    "state_machine.md 기반으로 상태 전이 테스트 케이스 실행",
+    "constitution.md 규칙에 따른 점수/등급 계산 검증",
+    "prompt_spec.md에 명시된 출력 형식 준수 여부 확인",
+    "interface_spec.md에 정의된 API 응답 구조 검증"
   ]
 }

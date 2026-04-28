@@ -233,7 +233,7 @@ class ImplementationPipeline:
             if Path(generated_file.path).name == "app.py":
                 target_path = self.app_target_path
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            target_path.write_text(generated_file.content, encoding="utf-8")
+            target_path.write_text(_ensure_trailing_newline(generated_file.content), encoding="utf-8")
             self._log(f"[MATERIALIZED] {target_path}")
 
     def _materialize_patched_files(self, patched_files) -> None:
@@ -242,7 +242,7 @@ class ImplementationPipeline:
             if Path(patched_file.path).name == "app.py":
                 target_path = self.app_target_path
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            target_path.write_text(patched_file.content, encoding="utf-8")
+            target_path.write_text(_ensure_trailing_newline(patched_file.content), encoding="utf-8")
             self._log(f"[PATCHED] {target_path}")
 
     def _run_local_checks(self) -> list[LocalCheckResult]:
@@ -517,3 +517,7 @@ def _dedupe_preserve_order(values: list[str]) -> list[str]:
         seen.add(value)
         ordered.append(value)
     return ordered
+
+
+def _ensure_trailing_newline(content: str) -> str:
+    return content if content.endswith("\n") else f"{content}\n"

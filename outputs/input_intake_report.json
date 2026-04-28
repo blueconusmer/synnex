@@ -216,7 +216,7 @@
     "service_slug": "question_quest",
     "target_framework": "streamlit",
     "content_output_filename": "question_quest_contents.json",
-    "normalized_source_path": "/tmp/synnex_issue29/inputs/mock_planning_outputs/question_quest_v0",
+    "normalized_source_path": "inputs/mock_planning_outputs/question_quest_v0",
     "content_distribution": {
       "item_count_by_type": {
         "multiple_choice": 1,
@@ -248,7 +248,7 @@
     {
       "field_path": "runtime_config.normalized_source_path",
       "before": "inputs/mock_planning_outputs/question_quest_v0",
-      "after": "/tmp/synnex_issue29/inputs/mock_planning_outputs/question_quest_v0",
+      "after": "inputs/mock_planning_outputs/question_quest_v0",
       "reason": "입력 package 경로를 절대 경로로 정규화했다."
     },
     {

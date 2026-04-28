@@ -82,10 +82,15 @@ def test_input_intake_generates_runtime_config_and_distribution() -> None:
     assert intake_result.runtime_config.service_slug == "question_quest"
     assert intake_result.runtime_config.target_framework == "streamlit"
     assert intake_result.runtime_config.content_output_filename == "question_quest_contents.json"
+    assert (
+        intake_result.runtime_config.normalized_source_path
+        == "inputs/mock_planning_outputs/question_quest_v0"
+    )
     assert intake_result.runtime_config.content_distribution.item_count_by_type == {
         "multiple_choice": 1,
         "question_improvement": 2,
     }
+    assert all(not path.startswith("/tmp/") for path in intake_result.source_paths)
     assert intake_result.implementation_spec is not None
     assert intake_result.quality_judgement is not None
 

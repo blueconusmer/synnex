@@ -115,7 +115,7 @@ def validate_and_normalize_planning_package(
         )
     )
 
-    normalized_source_path = str(package_dir.resolve())
+    normalized_source_path = _workspace_neutral_path(package_dir)
     auto_fixes.append(
         AutoFixRecord(
             field_path="runtime_config.normalized_source_path",
@@ -196,7 +196,7 @@ def build_failed_input_intake_result(
         service_slug=_slugify_service_name(package_dir.name),
         target_framework="streamlit",
         content_output_filename=build_content_filename(_slugify_service_name(package_dir.name)),
-        normalized_source_path=str(package_dir.resolve()),
+        normalized_source_path=_workspace_neutral_path(package_dir),
     )
     return InputIntakeResult(
         status=ValidationStatus.FAIL,
@@ -398,11 +398,19 @@ def _expected_source_paths(package_dir: Path) -> list[str]:
         "prompt_spec.md",
         "interface_spec.md",
     ]
-    paths = [str(package_dir / filename) for filename in filenames]
+    paths = [_workspace_neutral_path(package_dir / filename) for filename in filenames]
     optional_pytest = package_dir / "pytest.py"
     if optional_pytest.exists():
-        paths.append(str(optional_pytest))
+        paths.append(_workspace_neutral_path(optional_pytest))
     return paths
+
+
+def _workspace_neutral_path(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def _slugify_service_name(value: str) -> str:
