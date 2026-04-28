@@ -104,6 +104,11 @@ def run_content_interaction_agent(
     learning_dimensions = _resolve_learning_dimensions(input_model)
     expected_total = _resolve_expected_total(input_model)
     items_per_type = _resolve_items_per_type(input_model)
+    target_quiz_type_counts = _resolve_target_quiz_type_counts(
+        content_types=content_types,
+        expected_total=expected_total,
+        items_per_type=items_per_type,
+    )
     service_name = _resolve_service_name(input_model)
 
     prompt = load_prompt_text("content_interaction.md").format(
@@ -133,6 +138,7 @@ def run_content_interaction_agent(
         content_types=content_types,
         learning_dimensions=learning_dimensions,
         expected_total=expected_total,
+        target_quiz_type_counts=target_quiz_type_counts,
     )
     output.semantic_validation = summary
     _synchronize_output_maps(output, content_types)
@@ -180,6 +186,24 @@ def _resolve_service_name(input_model: ContentInteractionInput) -> str:
     return input_model.spec_intake_output.service_summary
 
 
+def _resolve_target_quiz_type_counts(
+    *,
+    content_types: list[str],
+    expected_total: int,
+    items_per_type: int,
+) -> dict[str, int]:
+    if not content_types:
+        return {}
+    if len(content_types) == 1:
+        return {content_types[0]: expected_total}
+    if len(content_types) == 2 and 0 < items_per_type < expected_total:
+        return {
+            content_types[0]: expected_total - items_per_type,
+            content_types[1]: items_per_type,
+        }
+    return {}
+
+
 def _repair_and_validate_content(
     *,
     output: ContentInteractionOutput,
@@ -188,6 +212,7 @@ def _repair_and_validate_content(
     content_types: list[str],
     learning_dimensions: list[str],
     expected_total: int,
+    target_quiz_type_counts: dict[str, int],
 ) -> SemanticValidationSummary:
     initial_assessments = [
         _assess_item(item, content_types, learning_dimensions) for item in output.items
@@ -197,6 +222,14 @@ def _repair_and_validate_content(
         _apply_allowed_label_corrections(item, assessment)
 
     regeneration_plan = _plan_regeneration(initial_assessments)
+    regeneration_plan.extend(
+        _plan_distribution_regeneration(
+            items=output.items,
+            assessments=initial_assessments,
+            target_quiz_type_counts=target_quiz_type_counts,
+        )
+    )
+    regeneration_plan = _deduplicate_regeneration_plan(regeneration_plan)
     regenerated_item_ids: list[str] = []
 
     if regeneration_plan:
@@ -234,10 +267,10 @@ def _repair_and_validate_content(
     learning_dimension_values_valid = all(
         item.learning_dimension in learning_dimensions for item in output.items
     )
-    quiz_type_distribution_valid = (
-        len(content_types) > 0
-        and len(set(content_types)) == len(content_types)
-        and all(item.quiz_type in content_types for item in output.items)
+    quiz_type_distribution_valid = _is_quiz_type_distribution_valid(
+        items=output.items,
+        content_types=content_types,
+        target_quiz_type_counts=target_quiz_type_counts,
     )
     total_count_valid = len(output.items) == expected_total
     semantic_validator_passed = (
@@ -293,12 +326,50 @@ def _normalize_structural_contract(output: ContentInteractionOutput) -> None:
             if fallback not in item.choices:
                 item.choices.append(fallback)
 
+        if item.quiz_type == "multiple_choice" and not item.difficulty:
+            item.difficulty = "intro"
+        elif item.quiz_type == "question_improvement" and not item.difficulty:
+            item.difficulty = "main"
+
+        if not item.topic_context:
+            item.topic_context = item.learning_dimension or "학습 맥락"
+        if not item.original_question:
+            item.original_question = item.question
+
 
 def _synchronize_output_maps(output: ContentInteractionOutput, content_types: list[str]) -> None:
+    output.items = _sort_items_for_service_flow(output.items, content_types)
     output.quiz_types = list(content_types)
     output.answer_key = {item.item_id: item.correct_choice for item in output.items}
     output.explanations = {item.item_id: item.explanation for item in output.items}
     output.learning_points = {item.item_id: item.learning_point for item in output.items}
+
+
+def _sort_items_for_service_flow(
+    items: list[QuizItem],
+    content_types: list[str],
+) -> list[QuizItem]:
+    if set(content_types) != {"multiple_choice", "question_improvement"}:
+        return items
+
+    if not any(item.quiz_type == "multiple_choice" for item in items):
+        return items
+    if sum(1 for item in items if item.quiz_type == "question_improvement") < 2:
+        return items
+
+    ordered = sorted(
+        items,
+        key=lambda item: (
+            0 if item.quiz_type == "multiple_choice" else 1,
+            item.item_id,
+        ),
+    )
+    for item in ordered:
+        if item.quiz_type == "multiple_choice":
+            item.difficulty = "intro"
+        elif item.quiz_type == "question_improvement":
+            item.difficulty = "main"
+    return ordered
 
 
 def _apply_allowed_label_corrections(item: QuizItem, assessment: ItemAssessment) -> None:
@@ -329,6 +400,80 @@ def _plan_regeneration(
                 )
             )
     return regeneration_targets
+
+
+def _plan_distribution_regeneration(
+    *,
+    items: list[QuizItem],
+    assessments: list[ItemAssessment],
+    target_quiz_type_counts: dict[str, int],
+) -> list[tuple[int, str, str]]:
+    if not target_quiz_type_counts:
+        return []
+
+    current_counts = Counter(item.quiz_type for item in items)
+    deficits = {
+        quiz_type: target_count - current_counts.get(quiz_type, 0)
+        for quiz_type, target_count in target_quiz_type_counts.items()
+        if current_counts.get(quiz_type, 0) < target_count
+    }
+    surpluses = {
+        quiz_type: current_counts.get(quiz_type, 0) - target_count
+        for quiz_type, target_count in target_quiz_type_counts.items()
+        if current_counts.get(quiz_type, 0) > target_count
+    }
+    if not deficits or not surpluses:
+        return []
+
+    plan: list[tuple[int, str, str]] = []
+    reserved_indexes: set[int] = set()
+    for target_quiz_type, deficit_count in deficits.items():
+        for _ in range(deficit_count):
+            candidate_index = _select_surplus_item_index(
+                items=items,
+                surpluses=surpluses,
+                reserved_indexes=reserved_indexes,
+            )
+            if candidate_index is None:
+                return plan
+            reserved_indexes.add(candidate_index)
+            current_dimension = assessments[candidate_index].expected_learning_dimension
+            plan.append(
+                (
+                    candidate_index,
+                    target_quiz_type,
+                    current_dimension or items[candidate_index].learning_dimension,
+                )
+            )
+            source_quiz_type = items[candidate_index].quiz_type
+            surpluses[source_quiz_type] -= 1
+            if surpluses[source_quiz_type] <= 0:
+                surpluses.pop(source_quiz_type, None)
+    return plan
+
+
+def _select_surplus_item_index(
+    *,
+    items: list[QuizItem],
+    surpluses: dict[str, int],
+    reserved_indexes: set[int],
+) -> int | None:
+    for index in range(len(items) - 1, -1, -1):
+        if index in reserved_indexes:
+            continue
+        quiz_type = items[index].quiz_type
+        if surpluses.get(quiz_type, 0) > 0:
+            return index
+    return None
+
+
+def _deduplicate_regeneration_plan(
+    plan: list[tuple[int, str, str]],
+) -> list[tuple[int, str, str]]:
+    by_index: dict[int, tuple[int, str, str]] = {}
+    for index, quiz_type, learning_dimension in plan:
+        by_index[index] = (index, quiz_type, learning_dimension)
+    return [by_index[index] for index in sorted(by_index)]
 
 
 def _regenerate_item(
@@ -658,6 +803,26 @@ def _build_validation_failure_message(
     reasons.append(f"actual_total={actual_total}")
     reasons.append(f"quiz_type_counts={quiz_type_counts}")
     return "Semantic validation failed. " + " | ".join(reasons)
+
+
+def _is_quiz_type_distribution_valid(
+    *,
+    items: list[QuizItem],
+    content_types: list[str],
+    target_quiz_type_counts: dict[str, int],
+) -> bool:
+    if not content_types or len(set(content_types)) != len(content_types):
+        return False
+    if not all(item.quiz_type in content_types for item in items):
+        return False
+    if not target_quiz_type_counts:
+        return True
+
+    current_counts = Counter(item.quiz_type for item in items)
+    return all(
+        current_counts.get(quiz_type, 0) == expected_count
+        for quiz_type, expected_count in target_quiz_type_counts.items()
+    )
 
 
 def _build_item_results(

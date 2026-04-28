@@ -5,6 +5,7 @@
   },
   "checks_run": [
     "py_compile",
+    "package_pytest",
     "streamlit_smoke"
   ],
   "failures": [],

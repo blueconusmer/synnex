@@ -240,6 +240,9 @@ class ImplementationPipeline:
 
     def _run_local_checks(self) -> list[LocalCheckResult]:
         checks = [self._run_py_compile_check()]
+        package_pytest_check = self._run_package_contract_check()
+        if package_pytest_check is not None:
+            checks.append(package_pytest_check)
         if self.enable_streamlit_smoke:
             checks.append(self._run_streamlit_smoke_check())
         return checks
@@ -309,6 +312,40 @@ class ImplementationPipeline:
             details=output.strip() or "Streamlit smoke test produced no console output.",
         )
 
+    def _run_package_contract_check(self) -> LocalCheckResult | None:
+        package_pytest = Path(self.spec_path) / "pytest.py"
+        if not package_pytest.exists():
+            return None
+
+        command = (
+            f"{self.python_executable} -m pytest --import-mode=importlib "
+            f"{package_pytest} -q"
+        )
+        result = subprocess.run(
+            [
+                self.python_executable,
+                "-m",
+                "pytest",
+                "--import-mode=importlib",
+                str(package_pytest),
+                "-q",
+            ],
+            cwd=self.workspace_dir,
+            capture_output=True,
+            text=True,
+        )
+        details = (result.stdout + "\n" + result.stderr).strip()
+        self._log(
+            "[CHECK] package_pytest -> "
+            f"{'PASS' if result.returncode == 0 else 'FAIL'}"
+        )
+        return LocalCheckResult(
+            check_name="package_pytest",
+            command=command,
+            passed=result.returncode == 0,
+            details=details or "Package pytest check completed without output.",
+        )
+
     def _write_execution_log(self) -> None:
         (self.output_dir / "execution_log.txt").write_text(
             "\n".join(self.logs) + "\n",
@@ -354,6 +391,11 @@ class ImplementationPipeline:
         streamlit_smoke_ran = "streamlit_smoke" in run_test_and_fix_output.checks_run
         streamlit_smoke_failed = any(
             failure.check_name == "streamlit_smoke"
+            for failure in run_test_and_fix_output.failures
+        )
+        package_pytest_ran = "package_pytest" in run_test_and_fix_output.checks_run
+        package_pytest_failed = any(
+            failure.check_name == "package_pytest"
             for failure in run_test_and_fix_output.failures
         )
         lines = [
@@ -405,6 +447,10 @@ class ImplementationPipeline:
                     (
                         "- app.py Streamlit smoke test 여부: "
                         f"{'PASS' if streamlit_smoke_ran and not streamlit_smoke_failed else 'FAIL'}"
+                    ),
+                    (
+                        "- package pytest.py 통과 여부: "
+                        f"{'PASS' if package_pytest_ran and not package_pytest_failed else 'FAIL' if package_pytest_ran else 'NOT RUN'}"
                     ),
                 ]
             )
