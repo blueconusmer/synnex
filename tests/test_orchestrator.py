@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from loaders import load_planning_package, planning_package_to_implementation_spec
+from loaders import load_input_intake
 from orchestrator.app_source import build_content_filename
 from orchestrator.pipeline import ImplementationPipeline
 from schemas.implementation.implementation_spec import parse_markdown_spec
+from schemas.planning_package import PlanningReviewItem, ValidationStatus
 from tests.fakes import FakeLLMClient
 
 
@@ -78,14 +79,16 @@ def test_pipeline_with_fake_llm_generates_expected_outputs(tmp_path: Path) -> No
 
 def test_pipeline_with_planning_package_generates_service_named_contents(tmp_path: Path) -> None:
     package_dir = REPO_ROOT / "inputs" / "mock_planning_outputs" / "question_quest_v0"
-    package = load_planning_package(package_dir)
-    implementation_spec = planning_package_to_implementation_spec(package, package_dir)
+    intake_result = load_input_intake(package_dir)
+    assert intake_result.implementation_spec is not None
+    implementation_spec = intake_result.implementation_spec
     content_filename = build_content_filename(implementation_spec.service_name)
 
     pipeline = ImplementationPipeline(
         llm_client=FakeLLMClient(),
         spec_path=package_dir,
         implementation_spec=implementation_spec,
+        input_intake_result=intake_result,
         workspace_dir=tmp_path,
         output_dir=tmp_path / "outputs",
         app_target_path=tmp_path / "app.py",
@@ -95,6 +98,12 @@ def test_pipeline_with_planning_package_generates_service_named_contents(tmp_pat
     pipeline.run()
 
     content_path = tmp_path / "outputs" / content_filename
+    intake_report_path = tmp_path / "outputs" / "input_intake_report.json"
+    final_summary = (tmp_path / "outputs" / "final_summary.md").read_text(encoding="utf-8")
+    qa_report = (tmp_path / "outputs" / "qa_report.md").read_text(encoding="utf-8")
+    assert intake_report_path.exists()
+    assert "Input Intake" in final_summary
+    assert "Input Intake" in qa_report
     assert content_path.exists()
     payload = json.loads(content_path.read_text(encoding="utf-8"))
     assert len(payload["items"]) == 3
@@ -109,3 +118,41 @@ def test_pipeline_with_planning_package_generates_service_named_contents(tmp_pat
     assert "def api_quest_submit(user_response: Any)" in app_source
     assert "def api_session_result()" in app_source
     assert content_filename in app_source
+    assert (tmp_path / "app.py").read_bytes().endswith(b"\n")
+
+
+def test_pipeline_records_input_intake_planning_review_warning(tmp_path: Path) -> None:
+    package_dir = REPO_ROOT / "inputs" / "mock_planning_outputs" / "question_quest_v0"
+    intake_result = load_input_intake(package_dir)
+    assert intake_result.implementation_spec is not None
+    review_intake_result = intake_result.model_copy(
+        update={
+            "status": ValidationStatus.NEEDS_PLANNING_REVIEW,
+            "planning_review_items": [
+                PlanningReviewItem(
+                    field_path="llm_spec.generation_prompt",
+                    reason="생성 의도는 기획팀 검토가 필요합니다.",
+                )
+            ],
+        }
+    )
+
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(),
+        spec_path=package_dir,
+        implementation_spec=review_intake_result.implementation_spec,
+        input_intake_result=review_intake_result,
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    pipeline.run()
+
+    final_summary = (tmp_path / "outputs" / "final_summary.md").read_text(encoding="utf-8")
+    qa_report = (tmp_path / "outputs" / "qa_report.md").read_text(encoding="utf-8")
+    assert "## Input Intake Warning" in final_summary
+    assert "## Input Intake Warning" in qa_report
+    assert "llm_spec.generation_prompt" in final_summary
+    assert "llm_spec.generation_prompt" in qa_report

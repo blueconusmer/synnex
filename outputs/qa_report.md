@@ -2,6 +2,13 @@
 
 - Alignment status: PASS
 
+## Input Intake
+- Status: AUTO_FIXED
+- Auto fixes: 5
+- Planning review items: 0
+- Issues: 0
+- Content distribution: {'multiple_choice': 1, 'question_improvement': 2}
+
 ## Checklist
 - 총 문제 수 확인: 3
 - 세션 구성 확인: multiple_choice 1 + question_improvement 2

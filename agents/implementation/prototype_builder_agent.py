@@ -125,6 +125,5 @@ def _is_planning_package_dir(path: Path) -> bool:
         "state_machine.md",
         "prompt_spec.md",
         "interface_spec.md",
-        "pytest.py",
     }
     return path.is_dir() and all((path / file_name).exists() for file_name in expected_files)

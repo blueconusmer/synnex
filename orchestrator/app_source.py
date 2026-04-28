@@ -58,13 +58,29 @@ def _build_generic_streamlit_app_source(service_name: str, content_filename: str
 
         import streamlit as st
 
-        OUTPUT_PATH = Path(__file__).resolve().parent / "outputs" / "{content_filename}"
+        CONTENT_FILENAME = "{content_filename}"
+        APP_DIR = Path(__file__).resolve().parent
+        OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
+        FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
+        CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
+
+
+        def resolve_content_path() -> Path | None:
+            for candidate in CONTENT_CANDIDATE_PATHS:
+                if candidate.exists():
+                    return candidate
+            return None
+
+
+        def describe_content_paths() -> str:
+            return ", ".join(str(path) for path in CONTENT_CANDIDATE_PATHS)
 
 
         def load_quiz_contents() -> dict[str, object]:
-            if not OUTPUT_PATH.exists():
+            content_path = resolve_content_path()
+            if content_path is None:
                 return {{}}
-            return json.loads(OUTPUT_PATH.read_text(encoding="utf-8"))
+            return json.loads(content_path.read_text(encoding="utf-8"))
 
 
         def render_header(data: dict[str, object]) -> None:
@@ -86,13 +102,20 @@ def _build_generic_streamlit_app_source(service_name: str, content_filename: str
                     st.write(f"- {{quiz_type}}")
                 st.subheader("생성 통계")
                 st.write(f"총 문제 수: {{len(data.get('items', []))}}")
-                st.write(f"데이터 파일: {{OUTPUT_PATH}}")
+                content_path = resolve_content_path()
+                if content_path is None:
+                    st.write(f"데이터 파일: 없음 (시도 경로: {{describe_content_paths()}})")
+                else:
+                    st.write(f"데이터 파일: {{content_path}}")
 
 
         def render_quiz(data: dict[str, object]) -> None:
             items = data.get("items", [])
             if not items:
-                st.warning("{content_filename}이 아직 없습니다. 먼저 파이프라인을 실행하세요.")
+                st.warning(
+                    "콘텐츠 파일을 찾지 못했습니다. 먼저 파이프라인을 실행하거나 "
+                    f"다음 경로 중 하나에 파일을 준비하세요: {{describe_content_paths()}}"
+                )
                 st.stop()
 
             st.subheader("퀴즈 풀기")
@@ -173,7 +196,11 @@ def _build_quest_streamlit_app_source(
             import streamlit as st
 
             SERVICE_NAME = $SERVICE_NAME
-            OUTPUT_PATH = Path(__file__).resolve().parent / "outputs" / $CONTENT_FILENAME
+            CONTENT_FILENAME = $CONTENT_FILENAME
+            APP_DIR = Path(__file__).resolve().parent
+            OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
+            FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
+            CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
             SCREENS = $SCREENS
             API_ENDPOINTS = $API_ENDPOINTS
             SCORE_RULES = $SCORE_RULES
@@ -203,10 +230,22 @@ def _build_quest_streamlit_app_source(
             ]
 
 
+            def resolve_content_path() -> Path | None:
+                for candidate in CONTENT_CANDIDATE_PATHS:
+                    if candidate.exists():
+                        return candidate
+                return None
+
+
+            def describe_content_paths() -> str:
+                return ", ".join(str(path) for path in CONTENT_CANDIDATE_PATHS)
+
+
             def load_quest_contents() -> dict[str, Any]:
-                if not OUTPUT_PATH.exists():
+                content_path = resolve_content_path()
+                if content_path is None:
                     return {}
-                return json.loads(OUTPUT_PATH.read_text(encoding="utf-8"))
+                return json.loads(content_path.read_text(encoding="utf-8"))
 
 
             def ensure_state() -> None:
@@ -521,6 +560,7 @@ def _build_quest_streamlit_app_source(
 
             def render_sidebar() -> None:
                 with st.sidebar:
+                    content_path = resolve_content_path()
                     st.subheader("세션 상태")
                     st.write(f"현재 화면: {st.session_state.current_screen}")
                     st.write(f"현재 등급: {st.session_state.current_grade or '없음'}")
@@ -532,7 +572,10 @@ def _build_quest_streamlit_app_source(
                     st.subheader("내부 API")
                     for endpoint in API_ENDPOINTS:
                         st.write(f"- {endpoint}")
-                    st.caption(f"콘텐츠 파일: {OUTPUT_PATH.name}")
+                    if content_path is None:
+                        st.caption(f"콘텐츠 파일: 없음 ({describe_content_paths()})")
+                    else:
+                        st.caption(f"콘텐츠 파일: {content_path}")
 
 
             def render_start_screen() -> None:
@@ -687,8 +730,11 @@ def _build_quest_streamlit_app_source(
                 ensure_state()
                 render_sidebar()
 
-                if not OUTPUT_PATH.exists():
-                    st.warning(f"{OUTPUT_PATH.name}이 아직 없습니다. 먼저 파이프라인을 실행하세요.")
+                if resolve_content_path() is None:
+                    st.warning(
+                        "콘텐츠 파일을 찾지 못했습니다. 먼저 파이프라인을 실행하거나 "
+                        f"다음 경로 중 하나에 파일을 준비하세요: {describe_content_paths()}"
+                    )
 
                 screen = st.session_state.current_screen
                 if screen == SCREEN_START:

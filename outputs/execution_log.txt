@@ -1,5 +1,6 @@
 [INFO] Starting education-service implementation pipeline
 [INFO] Source spec: inputs/mock_planning_outputs/question_quest_v0
+[INFO] Input intake status: AUTO_FIXED
 [RUNNING] Spec Intake Agent / 구현 명세서 분석 Agent
 [SUCCESS] Spec Intake Agent / 구현 명세서 분석 Agent
 [OUTPUT] outputs/spec_intake_output.json

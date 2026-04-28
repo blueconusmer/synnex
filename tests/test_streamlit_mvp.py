@@ -90,6 +90,9 @@ def test_generated_streamlit_app_compiles_and_starts(tmp_path: Path) -> None:
         build_streamlit_app_source("질문력 향상 퀴즈 서비스", content_filename),
         encoding="utf-8",
     )
+    source = app_path.read_text(encoding="utf-8")
+    assert "CONTENT_CANDIDATE_PATHS" in source
+    assert "FALLBACK_OUTPUT_PATH" in source
 
     _assert_streamlit_app_starts(app_path, cwd=tmp_path, port=8766)
 
@@ -123,6 +126,10 @@ def test_generated_quest_streamlit_app_compiles_and_starts(tmp_path: Path) -> No
         fake,
     )
     app_path.write_text(builder_output.generated_files[0].content, encoding="utf-8")
+    source = app_path.read_text(encoding="utf-8")
+    assert "CONTENT_CANDIDATE_PATHS" in source
+    assert "FALLBACK_OUTPUT_PATH" in source
+    assert "load_planning_package" not in source
 
     _assert_streamlit_app_starts(app_path, cwd=tmp_path, port=8767)
 

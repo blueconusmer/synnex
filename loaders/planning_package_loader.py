@@ -8,6 +8,7 @@ from schemas.implementation.implementation_spec import ImplementationSpec
 from schemas.planning_package import (
     ContentSpec,
     EvaluationSpec,
+    InputIntakeResult,
     InteractionSpec,
     InterfaceSpec,
     LLMSpec,
@@ -15,26 +16,43 @@ from schemas.planning_package import (
     ServiceMeta,
     TestSpec,
 )
+from validators import (
+    DeterministicInputQualityJudge,
+    InputQualityJudge,
+    build_failed_input_intake_result,
+    validate_and_normalize_planning_package,
+)
 
 
-EXPECTED_FILES = {
+REQUIRED_FILES = {
     "constitution": "constitution.md",
     "data_schema": "data_schema.json",
     "state_machine": "state_machine.md",
     "prompt_spec": "prompt_spec.md",
     "interface_spec": "interface_spec.md",
+}
+OPTIONAL_FILES = {
     "pytest_file": "pytest.py",
 }
+EXPECTED_FILES = {**REQUIRED_FILES, **OPTIONAL_FILES}
+
+
+class PlanningPackageLoadError(ValueError):
+    """Raised when a planning package file exists but cannot be parsed."""
 
 
 def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
-    """Load a six-file planning package into the canonical PlanningOutputPackage schema."""
+    """Load a planning package into the canonical PlanningOutputPackage schema."""
 
     if not package_dir.exists() or not package_dir.is_dir():
         raise FileNotFoundError(f"Planning package directory does not exist: {package_dir}")
 
     paths = {key: package_dir / filename for key, filename in EXPECTED_FILES.items()}
-    missing_files = [str(path) for path in paths.values() if not path.exists()]
+    missing_files = [
+        str(package_dir / filename)
+        for filename in REQUIRED_FILES.values()
+        if not (package_dir / filename).exists()
+    ]
     if missing_files:
         raise FileNotFoundError(
             "Planning package is missing required files: " + ", ".join(missing_files)
@@ -45,7 +63,8 @@ def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
     state_machine_text = _read_text(paths["state_machine"])
     prompt_spec_text = _read_text(paths["prompt_spec"])
     interface_spec_text = _read_text(paths["interface_spec"])
-    pytest_text = _read_text(paths["pytest_file"])
+    pytest_path = paths["pytest_file"]
+    pytest_text = _read_text(pytest_path) if pytest_path.exists() else ""
 
     constitution_sections = _parse_markdown_sections(constitution_text)
     state_machine_sections = _parse_markdown_sections(state_machine_text)
@@ -92,10 +111,40 @@ def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
             evaluation_prompt=_extract_evaluation_prompt(prompt_spec_text, prompt_sections),
         ),
         test_spec=TestSpec(
-            test_file_path=EXPECTED_FILES["pytest_file"],
+            test_file_path=EXPECTED_FILES["pytest_file"] if pytest_path.exists() else "",
             acceptance_criteria=_extract_acceptance_criteria(pytest_text),
         ),
         constraints=_extract_constraints(constitution_sections),
+    )
+
+
+def load_input_intake(
+    package_dir: Path,
+    quality_judge: InputQualityJudge | None = None,
+) -> InputIntakeResult:
+    """Load, validate, and normalize a planning package before the 6-agent pipeline."""
+
+    try:
+        package = load_planning_package(package_dir)
+        implementation_spec = planning_package_to_implementation_spec(package, package_dir)
+    except FileNotFoundError as exc:
+        return build_failed_input_intake_result(
+            package_dir=package_dir,
+            message=str(exc),
+            code="PLANNING_PACKAGE_FILE_MISSING",
+        )
+    except PlanningPackageLoadError as exc:
+        return build_failed_input_intake_result(
+            package_dir=package_dir,
+            message=str(exc),
+            code="PLANNING_PACKAGE_PARSE_FAILED",
+        )
+
+    return validate_and_normalize_planning_package(
+        package=package,
+        package_dir=package_dir,
+        implementation_spec=implementation_spec,
+        quality_judge=quality_judge or DeterministicInputQualityJudge(),
     )
 
 
@@ -134,8 +183,8 @@ def _read_text(path: Path) -> str:
 def _read_json(path: Path) -> dict:
     try:
         payload = json.loads(_read_text(path))
-    except json.JSONDecodeError:
-        return {}
+    except json.JSONDecodeError as exc:
+        raise PlanningPackageLoadError(f"Failed to parse JSON file: {path}") from exc
     return payload if isinstance(payload, dict) else {}
 
 
@@ -196,13 +245,43 @@ def _section_text(sections: dict[str, list[str]], query: str) -> str:
 
 
 def _extract_rubric_criteria(text: str) -> list[str]:
+    sections = _parse_markdown_sections(text)
+    rubric_lines: list[str] = []
+    for title, lines in sections.items():
+        if "평가" in title and "루브릭" in title:
+            rubric_lines = lines
+            break
+    if not rubric_lines:
+        rubric_lines = _find_rubric_table_lines(text)
+
     criteria: list[str] = []
-    for line in text.splitlines():
-        if line.startswith("| **"):
+    for line in rubric_lines:
+        stripped = line.strip()
+        if stripped.startswith("| **"):
             match = re.search(r"\*\*(.+?)\*\*", line)
             if match:
-                criteria.append(match.group(1))
+                criterion = match.group(1).strip()
+                if criterion not in {"우수", "양호", "미흡"}:
+                    criteria.append(criterion)
     return criteria
+
+
+def _find_rubric_table_lines(text: str) -> list[str]:
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        if not all(token in stripped for token in ["기준", "우수", "양호", "미흡"]):
+            continue
+
+        table_lines: list[str] = []
+        for table_line in lines[index + 1 :]:
+            if not table_line.strip().startswith("|"):
+                break
+            table_lines.append(table_line)
+        return table_lines
+    return []
 
 
 def _extract_service_grades(text: str) -> dict[str, list[int | None]]:
