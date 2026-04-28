@@ -45,11 +45,24 @@ def run_run_test_and_fix_agent(
         prototype_builder_output=dump_model(input_model.prototype_builder_output),
         check_results=dump_model_collection(input_model.check_results),
     )
-    output = llm_client.generate_json(
-        prompt=prompt,
-        response_model=RunTestAndFixOutput,
-        system_prompt="You analyze failed checks, propose minimal code fixes, and return structured JSON.",
-    )
+    try:
+        output = llm_client.generate_json(
+            prompt=prompt,
+            response_model=RunTestAndFixOutput,
+            system_prompt="You analyze failed checks, propose minimal code fixes, and return structured JSON.",
+        )
+    except Exception as exc:
+        return RunTestAndFixOutput(
+            agent=make_label("Run Test And Fix Agent", "실행·테스트·수정 Agent"),
+            checks_run=[check.check_name for check in input_model.check_results],
+            failures=failures,
+            fixes_applied=[],
+            remaining_risks=[
+                f"Run Test And Fix LLM patch generation failed: {exc}"
+            ],
+            patched_files=[],
+            should_retry_builder=False,
+        )
     output.agent = make_label("Run Test And Fix Agent", "실행·테스트·수정 Agent")
     if output.patched_files:
         output.should_retry_builder = True

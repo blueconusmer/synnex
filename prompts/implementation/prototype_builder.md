@@ -37,6 +37,13 @@ prompt_spec:
 반드시 아래를 지켜라:
 - `target_framework == "streamlit"`일 때만 app.py를 생성한다.
 - app은 `outputs/{content_filename}`을 우선 읽고, 루트 `{content_filename}`을 fallback으로 읽어야 한다.
+- app_source에는 아래 콘텐츠 로딩 계약을 그대로 포함해야 한다.
+  - `OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME`
+  - `FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME`
+  - `CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]`
+  - `resolve_content_path()`는 반드시 `CONTENT_CANDIDATE_PATHS`를 앞에서부터 순회해야 한다.
+  - 콘텐츠 파일이 없으면 `st.warning(...)` 또는 `st.error(...)`로 사용자에게 안내해야 한다.
+- 금지: `CONTENT_PATH = "{content_filename}"`를 먼저 검사한 뒤 `outputs/{content_filename}`를 fallback으로 읽는 root-first 로딩 구조.
 - app.py 실행 시 planning package 파일(interface_spec.md, state_machine.md, data_schema.json, prompt_spec.md, constitution.md)을 다시 읽으면 안 된다.
 - `streamlit` 앱에서 사용자는 문제 풀이, 정답 확인, 해설과 학습 포인트 확인이 가능해야 한다.
 - planning package 입력이면 interface_spec의 S0~S5, state_machine의 세션 흐름, data_schema의 score/grade 규칙, prompt_spec의 평가 의도를 반영한다.

@@ -80,16 +80,12 @@ def run_prototype_builder_agent(
     ]
 
     try:
-        generated_app = _generate_app_source_with_llm(
+        app_source, generation_notes = _generate_validated_app_source_with_llm(
             input_model=input_model,
             llm_client=llm_client,
             content_filename=content_filename,
         )
-        app_source = _validate_generated_app_source(
-            generated_app=generated_app,
-            content_filename=content_filename,
-        )
-        runtime_notes.extend(generated_app.generation_notes)
+        runtime_notes.extend(generation_notes)
         runtime_notes.append("app.py는 LLM 생성 결과를 사용했다.")
     except InvalidAppSourceError as exc:
         builder_errors.extend([LLM_OUTPUT_INVALID, FALLBACK_USED])
@@ -203,6 +199,56 @@ def _generate_app_source_with_llm(
     )
 
 
+def _generate_validated_app_source_with_llm(
+    *,
+    input_model: PrototypeBuilderInput,
+    llm_client: LLMClient,
+    content_filename: str,
+) -> tuple[str, list[str]]:
+    generated_app = _generate_app_source_with_llm(
+        input_model=input_model,
+        llm_client=llm_client,
+        content_filename=content_filename,
+    )
+    try:
+        return (
+            _validate_generated_app_source(
+                generated_app=generated_app,
+                content_filename=content_filename,
+            ),
+            list(generated_app.generation_notes),
+        )
+    except InvalidAppSourceError as first_error:
+        repair_prompt = _build_app_validation_repair_prompt(
+            input_model=input_model,
+            content_filename=content_filename,
+            invalid_source=generated_app.app_source,
+            validation_error=str(first_error),
+        )
+        repaired_app = llm_client.generate_json(
+            prompt=repair_prompt,
+            response_model=AppSourceGenerationOutput,
+            system_prompt=(
+                "You fix one generated Streamlit app.py so it satisfies the runtime contract. "
+                "Return JSON only. Do not call external LLM APIs."
+            ),
+        )
+        repaired_source = _validate_generated_app_source(
+            generated_app=repaired_app,
+            content_filename=content_filename,
+        )
+        return (
+            repaired_source,
+            _dedupe_preserve_order(
+                [
+                    *generated_app.generation_notes,
+                    "Initial app_source failed validation and was regenerated once.",
+                    *repaired_app.generation_notes,
+                ]
+            ),
+        )
+
+
 def _build_app_generation_prompt(
     *,
     input_model: PrototypeBuilderInput,
@@ -251,6 +297,31 @@ def _build_app_generation_prompt(
     )
 
 
+def _build_app_validation_repair_prompt(
+    *,
+    input_model: PrototypeBuilderInput,
+    content_filename: str,
+    invalid_source: str,
+    validation_error: str,
+) -> str:
+    spec = input_model.implementation_spec
+    return (
+        "The previous generated app.py failed validation.\n"
+        f"Validation error: {validation_error}\n\n"
+        "Regenerate the full app.py source while preserving the intended UI and behavior.\n"
+        "The corrected source must satisfy this mandatory content loading contract:\n\n"
+        f"{_mandatory_content_loading_contract(content_filename)}\n\n"
+        "Do not read planning package files at runtime.\n"
+        "Do not call external LLM APIs.\n"
+        "Return JSON with app_path='app.py', app_source, and generation_notes.\n\n"
+        f"service_name: {spec.service_name}\n"
+        f"target_framework: {spec.target_framework}\n"
+        f"content_filename: {content_filename}\n\n"
+        "Previous invalid app_source:\n"
+        f"{invalid_source}"
+    )
+
+
 def _validate_generated_app_source(
     *,
     generated_app: AppSourceGenerationOutput,
@@ -281,6 +352,12 @@ def _validate_generated_app_source(
         raise InvalidAppSourceError(
             "app_source must show user-facing guidance when the content file is missing."
         )
+    try:
+        compile(app_source, "app.py", "exec")
+    except SyntaxError as exc:
+        raise InvalidAppSourceError(
+            f"app_source is not valid Python: {exc.msg} at line {exc.lineno}."
+        ) from exc
     forbidden_runtime_inputs = [
         "load_planning_package",
         "constitution.md",
@@ -405,6 +482,34 @@ def _build_generation_inputs_summary(input_model: PrototypeBuilderInput) -> list
     if _is_planning_package_dir(Path(spec.source_path)):
         summary.extend(["interface_spec", "state_machine", "data_schema", "prompt_spec"])
     return summary
+
+
+def _mandatory_content_loading_contract(content_filename: str) -> str:
+    return (
+        "from pathlib import Path\n\n"
+        f'CONTENT_FILENAME = "{content_filename}"\n'
+        "APP_DIR = Path(__file__).resolve().parent\n"
+        'OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME\n'
+        "FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME\n"
+        "CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]\n\n"
+        "def resolve_content_path() -> Path | None:\n"
+        "    for candidate in CONTENT_CANDIDATE_PATHS:\n"
+        "        if candidate.exists():\n"
+        "            return candidate\n"
+        "    return None\n\n"
+        "# If resolve_content_path() returns None, show st.warning or st.error with a clear message.\n"
+    )
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
 
 
 def _normalize_target_framework(value: str) -> str:

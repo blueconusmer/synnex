@@ -1,7 +1,7 @@
 # Final Summary
 
 ## 서비스 요약
-- 중학생 대상 AI 질문 능력 향상 훈련 서비스. 메타인지 결핍과 언어적 구체화 능력 부족을 해결하기 위해 주제/상황/원하는 답의 형태를 포함한 질문 작성 훈련을 제공한다. Streamlit 기반 구현으로 3개 세션(질문 개선 + 피드백)을 통해 구체성·맥락성·목적성 학습 목표를 달성한다.
+- 중학생 대상 AI 질문 능력 향상 훈련 서비스. 메타인지 결핍과 언어적 구체화 능력 부족을 해결하기 위해 주제/상황/원하는 답의 형태를 포함한 질문 작성 훈련을 제공. 3개 세션(5-10분/세션)으로 구성되며, 점수 누적 방식과 쉬운 표현을 통해 학습 동기를 유지. Streamlit 기반 구현.
 
 ## Input Intake 결과
 - 상태: AUTO_FIXED
@@ -12,13 +12,15 @@
 
 ## 구현 요구사항 요약
 - 중학생 대상 메타인지 및 질문 구체화 능력 훈련 제공
-- 주제/상황/원하는 답의 형태 3요소 포함 질문 작성 기능 구현
-- 다중 선택(multiple_choice) 및 질문 개선(question_improvement) 핵심 기능 포함
-- 3개 세션(SESSION_START → QUEST_N_ACTIVE → QUEST_N_FEEDBACK) 상태 전이 구현
-- 5~10분 내 완료 가능한 짧은 세션 설계
-- 점수 누적 시스템(감소 없음) 및 등급 갱신 메커니즘 구현
-- 중학생 눈높이에 맞춘 쉬운 언어 사용(피드백/안내/평가)
-- API 엔드포인트: /api/session/start, /api/quest/submit, /api/session/result
+- 주제/상황/원하는 답의 형태 요소 포함한 질문 작성 기능 구현
+- 3개 세션(각 5-10분)으로 구성된 점진적 학습 프로세스 설계
+- 정답을 제공하지 않고 질문 개선을 유도하는 피드백 시스템 구현
+- 점수가 누적되며 하강하지 않는 평가 체계 적용
+- 모든 콘텐츠를 중학생 눈높이에 맞춘 쉬운 표현으로 작성
+- multiple_choice 및 question_improvement 핵심 기능 구현
+- SESSION_START → QUEST_N_ACTIVE → QUEST_N_FEEDBACK 상태 전이 로직 준수
+- 데이터 스키마/상태 머신/점수 규칙/프롬프트 형식/API 응답 검증 필수
+- 설계 원칙·학습 목표·루브릭과의 정합성 유지
 
 ## 콘텐츠 생성 요약
 - 퀴즈 유형 수: 2
@@ -28,12 +30,9 @@
 
 ## Prototype Builder 결과
 - target_framework: streamlit
-- generation_mode: fallback_template
-- fallback_used: True
+- generation_mode: llm_generated
+- fallback_used: False
 - reflection_attempts: 0
-- fallback_reason: LLM_OUTPUT_INVALID: app_source must try outputs/{content_filename} before the root fallback file.
-- LLM-generated app.py는 실패했고 fallback template으로 실행 가능 상태를 확보했다.
-- builder_errors: LLM_OUTPUT_INVALID, FALLBACK_USED
 
 ## #12 검증 결과
 - 총 3문항 여부: PASS
@@ -50,5 +49,5 @@
 - 세션 구성: multiple_choice 1 + question_improvement 2.
 - #12 검증 결과: semantic validator=PASS, 재생성=없음.
 - #20 실행 검증 결과: package_pytest=PASS, streamlit_smoke=PASS.
-- #28 Prototype Builder 결과: generation_mode=fallback_template, fallback=YES, reflection_attempts=0.
+- #28 Prototype Builder 결과: generation_mode=llm_generated, fallback=NO, reflection_attempts=0.
 - Streamlit MVP, 실행 로그, QA 결과가 함께 정리되었다.

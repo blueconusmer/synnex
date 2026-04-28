@@ -273,17 +273,26 @@ def test_pipeline_does_not_apply_fallback_for_package_pytest_only_failure(
     assert "LLM_GENERATED_APP_MARKER" in app_source
 
 
-def test_pipeline_reflection_patches_compile_failure(tmp_path: Path) -> None:
-    spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
-    content_filename = build_content_filename(spec.service_name)
-    broken_source = _build_contract_valid_broken_app_source(content_filename)
-    pipeline = ImplementationPipeline(
-        llm_client=FakeLLMClient(app_source=broken_source),
+def test_pipeline_reflection_patches_streamlit_smoke_failure(tmp_path: Path) -> None:
+    class SmokeFailsOncePipeline(ImplementationPipeline):
+        smoke_calls = 0
+
+        def _run_streamlit_smoke_check(self):
+            self.smoke_calls += 1
+            return LocalCheckResult(
+                check_name="streamlit_smoke",
+                command="fake streamlit smoke",
+                passed=self.smoke_calls > 1,
+                details="fake smoke failure" if self.smoke_calls == 1 else "fake smoke pass",
+            )
+
+    pipeline = SmokeFailsOncePipeline(
+        llm_client=FakeLLMClient(),
         spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
         workspace_dir=tmp_path,
         output_dir=tmp_path / "outputs",
         app_target_path=tmp_path / "app.py",
-        enable_streamlit_smoke=False,
+        enable_streamlit_smoke=True,
     )
 
     pipeline.run()
@@ -300,21 +309,30 @@ def test_pipeline_reflection_patches_compile_failure(tmp_path: Path) -> None:
     assert prototype_output["generation_mode"] == "llm_generated"
     assert prototype_output["fallback_used"] is False
     assert prototype_output["reflection_attempts"] == 1
-    assert "APP_PY_COMPILE_FAILED" in "\n".join(run_test_output["fixes_applied"])
+    assert "STREAMLIT_SMOKE_FAILED" in "\n".join(run_test_output["fixes_applied"])
     assert "LLM_GENERATED_APP_MARKER" in app_source
 
 
 def test_pipeline_falls_back_when_patch_is_not_available(tmp_path: Path) -> None:
-    spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
-    content_filename = build_content_filename(spec.service_name)
-    broken_source = _build_contract_valid_broken_app_source(content_filename)
-    pipeline = ImplementationPipeline(
-        llm_client=FakeLLMClient(app_source=broken_source, no_patch=True),
+    class SmokeFailsOncePipeline(ImplementationPipeline):
+        smoke_calls = 0
+
+        def _run_streamlit_smoke_check(self):
+            self.smoke_calls += 1
+            return LocalCheckResult(
+                check_name="streamlit_smoke",
+                command="fake streamlit smoke",
+                passed=self.smoke_calls > 1,
+                details="fake smoke failure" if self.smoke_calls == 1 else "fake smoke pass",
+            )
+
+    pipeline = SmokeFailsOncePipeline(
+        llm_client=FakeLLMClient(no_patch=True),
         spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
         workspace_dir=tmp_path,
         output_dir=tmp_path / "outputs",
         app_target_path=tmp_path / "app.py",
-        enable_streamlit_smoke=False,
+        enable_streamlit_smoke=True,
     )
 
     pipeline.run()
@@ -338,16 +356,22 @@ def test_pipeline_falls_back_when_patch_is_not_available(tmp_path: Path) -> None
 
 
 def test_pipeline_falls_back_when_patch_still_fails(tmp_path: Path) -> None:
-    spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
-    content_filename = build_content_filename(spec.service_name)
-    broken_source = _build_contract_valid_broken_app_source(content_filename)
-    pipeline = ImplementationPipeline(
-        llm_client=FakeLLMClient(app_source=broken_source, patch_source=broken_source),
+    class SmokeAlwaysFailsPipeline(ImplementationPipeline):
+        def _run_streamlit_smoke_check(self):
+            return LocalCheckResult(
+                check_name="streamlit_smoke",
+                command="fake streamlit smoke",
+                passed=False,
+                details="fake smoke failure",
+            )
+
+    pipeline = SmokeAlwaysFailsPipeline(
+        llm_client=FakeLLMClient(),
         spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
         workspace_dir=tmp_path,
         output_dir=tmp_path / "outputs",
         app_target_path=tmp_path / "app.py",
-        enable_streamlit_smoke=False,
+        enable_streamlit_smoke=True,
     )
 
     pipeline.run()
@@ -366,29 +390,3 @@ def test_pipeline_falls_back_when_patch_still_fails(tmp_path: Path) -> None:
     assert "PATCH_FAILED" in prototype_output["builder_errors"]
     assert "FALLBACK_USED" in prototype_output["builder_errors"]
     assert "FALLBACK_USED" in "\n".join(run_test_output["fixes_applied"])
-
-
-def _build_contract_valid_broken_app_source(content_filename: str) -> str:
-    return f'''from pathlib import Path
-
-import streamlit as st
-
-CONTENT_FILENAME = "{content_filename}"
-APP_DIR = Path(__file__).resolve().parent
-OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
-FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
-CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
-
-
-def resolve_content_path():
-    for candidate in CONTENT_CANDIDATE_PATHS:
-        if candidate.exists():
-            return candidate
-    st.warning("콘텐츠 파일을 찾지 못했습니다.")
-    return None
-
-
-st.title("broken")
-def broken(:
-    pass
-'''
