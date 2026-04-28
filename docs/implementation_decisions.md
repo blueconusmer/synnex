@@ -55,3 +55,10 @@
 - 결정: runtime 기준 필드는 `ImplementationSpec.target_framework`로 두고, 현재 지원값은 `streamlit`만 허용한다. 다른 값은 fallback 생성 없이 unsupported output/log를 남긴 뒤 local checks 전에 중단한다.
 - 이유: 미지원 프레임워크를 Streamlit으로 암묵 대체하면 실제 지원 범위를 오해할 수 있기 때문이다.
 - 영향 범위: `schemas/implementation/implementation_spec.py`, `schemas/planning_package/package.py`, `agents/implementation/prototype_builder_agent.py`, `orchestrator/pipeline.py`
+
+### 결정 9. Prototype Builder는 LLM 생성 우선, fallback template은 실패 복구용으로 제한
+- 맥락: #28에서 `app.py`를 고정 템플릿으로 항상 덮어쓰는 구조를 제거하고, planning package 정보를 반영한 LLM 기반 코드 생성을 요구했다.
+- 결정: `target_framework=streamlit`이면 Prototype Builder가 LLM으로 `app.py` 전체 소스를 생성한다. LLM 호출 실패, 유효하지 않은 app source, local check/patch 실패가 발생한 경우에만 검증된 fallback template을 사용한다.
+- 이유: 실제 Builder Agent가 구현 산출물을 생성한다는 요구를 만족하면서도, 마감용 MVP가 실행 불가능한 상태로 남는 위험은 제한하기 위해서다.
+- 기록 원칙: fallback 사용 시 `fallback_used=True`, `generation_mode=fallback_template`, failure code와 reason을 `prototype_builder_output.json`, `change_log.md`, `qa_report.md`, `final_summary.md`에 남긴다.
+- 영향 범위: `agents/implementation/prototype_builder_agent.py`, `schemas/implementation/prototype_builder.py`, `orchestrator/pipeline.py`, `prompts/implementation/prototype_builder.md`

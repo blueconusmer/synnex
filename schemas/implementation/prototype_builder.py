@@ -24,6 +24,18 @@ class PrototypeBuilderInput(SchemaModel):
     )
 
 
+class AppSourceGenerationOutput(SchemaModel):
+    app_path: str = Field(
+        default="app.py",
+        description="Relative app file path. For Streamlit MVPs this must be app.py.",
+    )
+    app_source: str = Field(description="Full generated Python source for app.py.")
+    generation_notes: list[str] = Field(
+        default_factory=list,
+        description="Short notes explaining the generated app structure.",
+    )
+
+
 class PrototypeBuilderOutput(SchemaModel):
     agent: AgentLabel | None = Field(default=None, description="Agent label metadata.")
     service_name: str = Field(description="Service name for the generated MVP.")
@@ -51,4 +63,28 @@ class PrototypeBuilderOutput(SchemaModel):
     integration_notes: list[str] = Field(
         default_factory=list,
         description="Notes for downstream test and QA stages.",
+    )
+    generation_mode: str = Field(
+        default="llm_generated",
+        description="How app.py was produced: llm_generated, fallback_template, or unsupported.",
+    )
+    fallback_used: bool = Field(
+        default=False,
+        description="Whether the deterministic fallback template was used.",
+    )
+    fallback_reason: str = Field(
+        default="",
+        description="Reason the fallback template was used, if any.",
+    )
+    generation_inputs_summary: list[str] = Field(
+        default_factory=list,
+        description="Inputs included in the app generation prompt.",
+    )
+    reflection_attempts: int = Field(
+        default=0,
+        description="Number of patch/reflection attempts applied after local checks.",
+    )
+    builder_errors: list[str] = Field(
+        default_factory=list,
+        description="Failure codes observed during Builder generation or fallback.",
     )
