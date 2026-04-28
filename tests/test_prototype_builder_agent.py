@@ -58,6 +58,8 @@ def test_prototype_builder_materializes_llm_generated_app_from_planning_package(
     assert "def api_quest_submit(user_response: Any)" in source
     assert "def api_session_result()" in source
     assert "question_quest_contents.json" in source
+    assert "OUTPUT_PATH = APP_DIR / \"outputs\" / CONTENT_FILENAME" in source
+    assert "CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]" in source
     assert "load_planning_package" not in source
     assert "constitution.md" not in source
 
@@ -120,6 +122,46 @@ def test_prototype_builder_uses_fallback_when_llm_output_invalid() -> None:
     assert "LLM_OUTPUT_INVALID" in output.builder_errors
     assert "FALLBACK_USED" in output.builder_errors
     assert "LLM_OUTPUT_INVALID" in output.fallback_reason
+
+
+def test_prototype_builder_rejects_root_first_content_loading_contract() -> None:
+    root_first_source = '''import json
+import os
+import streamlit as st
+
+CONTENT_PATH = "question_quest_contents.json"
+if not os.path.exists(CONTENT_PATH):
+    with open("outputs/question_quest_contents.json", encoding="utf-8") as file:
+        data = json.load(file)
+else:
+    with open(CONTENT_PATH, encoding="utf-8") as file:
+        data = json.load(file)
+
+if not data:
+    st.warning("콘텐츠 파일을 찾지 못했습니다.")
+st.write(data)
+'''
+    fake = FakeLLMClient(app_source=root_first_source)
+    package = load_planning_package(PACKAGE_DIR)
+    spec = planning_package_to_implementation_spec(package, PACKAGE_DIR)
+
+    output = run_prototype_builder_agent(
+        PrototypeBuilderInput(
+            spec_intake_output=fake.generate_json(prompt="", response_model=SpecIntakeOutput),
+            requirement_mapping_output=fake.generate_json(
+                prompt="",
+                response_model=RequirementMappingOutput,
+            ),
+            content_interaction_output=_build_package_content_output(fake, spec.service_name),
+            implementation_spec=spec,
+        ),
+        fake,
+    )
+
+    assert output.generation_mode == "fallback_template"
+    assert output.fallback_used is True
+    assert "LLM_OUTPUT_INVALID" in output.builder_errors
+    assert "outputs/{content_filename}" in output.fallback_reason
 
 
 def test_prototype_builder_returns_unsupported_output_for_react() -> None:

@@ -1,6 +1,6 @@
 # QA Report
 
-- Alignment status: PASS
+- Alignment status: WARN
 
 ## Input Intake
 - Status: AUTO_FIXED
@@ -15,13 +15,13 @@
 - configured content type 수(2) 일치 여부: PASS
 - learning_dimension 허용값 여부: PASS
 - semantic validator 통과 여부: PASS
-- 재생성 발생 여부: YES
+- 재생성 발생 여부: NO
 - app.py Streamlit smoke test 여부: PASS
 - package pytest.py 통과 여부: PASS
-- Prototype Builder LLM 생성 여부: llm_generated
-- fallback template 사용 여부: NO
+- Prototype Builder LLM 생성 여부: fallback_template
+- fallback template 사용 여부: YES
 - app.py가 서비스별 콘텐츠 파일을 읽도록 생성되었는지 확인
 - 실행 로그와 변경 로그가 생성되었는지 확인
 
 ## Issues
-- No blocking QA issues were reported.
+- LLM-generated app.py did not complete successfully; fallback template was used.

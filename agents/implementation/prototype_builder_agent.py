@@ -269,6 +269,18 @@ def _validate_generated_app_source(
         raise InvalidAppSourceError(
             f"app_source does not reference required content file {content_filename}."
         )
+    if not _references_outputs_content_path(app_source, content_filename):
+        raise InvalidAppSourceError(
+            f"app_source must reference outputs/{content_filename} as a content candidate."
+        )
+    if not _uses_outputs_before_root_fallback(app_source, content_filename):
+        raise InvalidAppSourceError(
+            "app_source must try outputs/{content_filename} before the root fallback file."
+        )
+    if not _has_missing_content_guidance(app_source):
+        raise InvalidAppSourceError(
+            "app_source must show user-facing guidance when the content file is missing."
+        )
     forbidden_runtime_inputs = [
         "load_planning_package",
         "constitution.md",
@@ -283,6 +295,71 @@ def _validate_generated_app_source(
                 f"app_source must not read planning package input at runtime: {forbidden}."
             )
     return app_source.rstrip() + "\n"
+
+
+def _references_outputs_content_path(app_source: str, content_filename: str) -> bool:
+    normalized = _normalize_source_for_contract_checks(app_source)
+    exact_outputs_path = f"outputs/{content_filename}".lower()
+    return (
+        exact_outputs_path in normalized
+        or '"outputs"/content_filename' in normalized
+        or "'outputs'/content_filename" in normalized
+        or '/"outputs"/content_filename' in normalized
+        or "/'outputs'/content_filename" in normalized
+    )
+
+
+def _uses_outputs_before_root_fallback(app_source: str, content_filename: str) -> bool:
+    compact = _normalize_source_for_contract_checks(app_source)
+    outputs_first_patterns = [
+        "content_candidate_paths=[output_path,fallback_output_path]",
+        "candidate_paths=[output_path,fallback_output_path]",
+        "content_paths=[output_path,fallback_output_path]",
+        "content_candidate_paths=[outputs_path,root_path]",
+        "candidate_paths=[outputs_path,root_path]",
+        "content_paths=[outputs_path,root_path]",
+        "content_candidate_paths=[output_path,root_path]",
+        "candidate_paths=[output_path,root_path]",
+        "content_paths=[output_path,root_path]",
+    ]
+    if any(pattern in compact for pattern in outputs_first_patterns):
+        return True
+
+    exact_outputs_path = f"outputs/{content_filename}".lower()
+    root_first_patterns = [
+        f"content_path='{content_filename.lower()}'",
+        f'content_path="{content_filename.lower()}"',
+        f"content_path=app_dir/'{content_filename.lower()}'",
+        f'content_path=app_dir/"{content_filename.lower()}"',
+    ]
+    if exact_outputs_path in compact and any(pattern in compact for pattern in root_first_patterns):
+        root_first_index = min(
+            compact.find(pattern)
+            for pattern in root_first_patterns
+            if pattern in compact
+        )
+        output_index = compact.find(exact_outputs_path)
+        return output_index < root_first_index
+
+    return exact_outputs_path in compact
+
+
+def _has_missing_content_guidance(app_source: str) -> bool:
+    lowered = app_source.lower()
+    guidance_markers = [
+        "st.warning",
+        "st.error",
+        "콘텐츠 파일",
+        "content file",
+        "not found",
+        "찾지 못",
+        "없습니다",
+    ]
+    return any(marker in lowered for marker in guidance_markers)
+
+
+def _normalize_source_for_contract_checks(app_source: str) -> str:
+    return "".join(app_source.lower().split())
 
 
 def _strip_python_fence(source: str) -> str:

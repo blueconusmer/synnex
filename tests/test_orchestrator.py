@@ -240,13 +240,7 @@ def test_pipeline_records_invalid_target_framework_reason(tmp_path: Path) -> Non
 def test_pipeline_reflection_patches_compile_failure(tmp_path: Path) -> None:
     spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
     content_filename = build_content_filename(spec.service_name)
-    broken_source = (
-        "import streamlit as st\n"
-        f'CONTENT_FILENAME = "{content_filename}"\n'
-        "st.title('broken')\n"
-        "def broken(:\n"
-        "    pass\n"
-    )
+    broken_source = _build_contract_valid_broken_app_source(content_filename)
     pipeline = ImplementationPipeline(
         llm_client=FakeLLMClient(app_source=broken_source),
         spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
@@ -277,13 +271,7 @@ def test_pipeline_reflection_patches_compile_failure(tmp_path: Path) -> None:
 def test_pipeline_falls_back_when_patch_is_not_available(tmp_path: Path) -> None:
     spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
     content_filename = build_content_filename(spec.service_name)
-    broken_source = (
-        "import streamlit as st\n"
-        f'CONTENT_FILENAME = "{content_filename}"\n'
-        "st.title('broken')\n"
-        "def broken(:\n"
-        "    pass\n"
-    )
+    broken_source = _build_contract_valid_broken_app_source(content_filename)
     pipeline = ImplementationPipeline(
         llm_client=FakeLLMClient(app_source=broken_source, no_patch=True),
         spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
@@ -316,13 +304,7 @@ def test_pipeline_falls_back_when_patch_is_not_available(tmp_path: Path) -> None
 def test_pipeline_falls_back_when_patch_still_fails(tmp_path: Path) -> None:
     spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
     content_filename = build_content_filename(spec.service_name)
-    broken_source = (
-        "import streamlit as st\n"
-        f'CONTENT_FILENAME = "{content_filename}"\n'
-        "st.title('broken')\n"
-        "def broken(:\n"
-        "    pass\n"
-    )
+    broken_source = _build_contract_valid_broken_app_source(content_filename)
     pipeline = ImplementationPipeline(
         llm_client=FakeLLMClient(app_source=broken_source, patch_source=broken_source),
         spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
@@ -348,3 +330,29 @@ def test_pipeline_falls_back_when_patch_still_fails(tmp_path: Path) -> None:
     assert "PATCH_FAILED" in prototype_output["builder_errors"]
     assert "FALLBACK_USED" in prototype_output["builder_errors"]
     assert "FALLBACK_USED" in "\n".join(run_test_output["fixes_applied"])
+
+
+def _build_contract_valid_broken_app_source(content_filename: str) -> str:
+    return f'''from pathlib import Path
+
+import streamlit as st
+
+CONTENT_FILENAME = "{content_filename}"
+APP_DIR = Path(__file__).resolve().parent
+OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
+FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
+CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
+
+
+def resolve_content_path():
+    for candidate in CONTENT_CANDIDATE_PATHS:
+        if candidate.exists():
+            return candidate
+    st.warning("콘텐츠 파일을 찾지 못했습니다.")
+    return None
+
+
+st.title("broken")
+def broken(:
+    pass
+'''
