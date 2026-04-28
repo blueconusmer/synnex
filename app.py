@@ -9,7 +9,11 @@ from uuid import uuid4
 import streamlit as st
 
 SERVICE_NAME = 'question_quest'
-OUTPUT_PATH = Path(__file__).resolve().parent / "outputs" / 'question_quest_contents.json'
+CONTENT_FILENAME = 'question_quest_contents.json'
+APP_DIR = Path(__file__).resolve().parent
+OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
+FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
+CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
 SCREENS = ['S0', 'S1', 'S2', 'S3', 'S4', 'S5']
 API_ENDPOINTS = ['/api/session/start', '/api/quest/submit', '/api/session/result']
 SCORE_RULES = {'rubric_grades': ['우수', '양호', '미흡'],
@@ -51,10 +55,22 @@ PURPOSE_MARKERS = [
 ]
 
 
+def resolve_content_path() -> Path | None:
+    for candidate in CONTENT_CANDIDATE_PATHS:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def describe_content_paths() -> str:
+    return ", ".join(str(path) for path in CONTENT_CANDIDATE_PATHS)
+
+
 def load_quest_contents() -> dict[str, Any]:
-    if not OUTPUT_PATH.exists():
+    content_path = resolve_content_path()
+    if content_path is None:
         return {}
-    return json.loads(OUTPUT_PATH.read_text(encoding="utf-8"))
+    return json.loads(content_path.read_text(encoding="utf-8"))
 
 
 def ensure_state() -> None:
@@ -369,6 +385,7 @@ def api_session_result() -> dict[str, Any]:
 
 def render_sidebar() -> None:
     with st.sidebar:
+        content_path = resolve_content_path()
         st.subheader("세션 상태")
         st.write(f"현재 화면: {st.session_state.current_screen}")
         st.write(f"현재 등급: {st.session_state.current_grade or '없음'}")
@@ -380,7 +397,10 @@ def render_sidebar() -> None:
         st.subheader("내부 API")
         for endpoint in API_ENDPOINTS:
             st.write(f"- {endpoint}")
-        st.caption(f"콘텐츠 파일: {OUTPUT_PATH.name}")
+        if content_path is None:
+            st.caption(f"콘텐츠 파일: 없음 ({describe_content_paths()})")
+        else:
+            st.caption(f"콘텐츠 파일: {content_path}")
 
 
 def render_start_screen() -> None:
@@ -535,8 +555,12 @@ def main() -> None:
     ensure_state()
     render_sidebar()
 
-    if not OUTPUT_PATH.exists():
-        st.warning(f"{OUTPUT_PATH.name}이 아직 없습니다. 먼저 파이프라인을 실행하세요.")
+    content_path = resolve_content_path()
+    if content_path is None:
+        st.warning(
+            "콘텐츠 파일을 찾지 못했습니다. 먼저 파이프라인을 실행하거나 "
+            f"다음 경로 중 하나에 파일을 준비하세요: {describe_content_paths()}"
+        )
 
     screen = st.session_state.current_screen
     if screen == SCREEN_START:
