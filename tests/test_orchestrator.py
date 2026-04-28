@@ -6,6 +6,7 @@ from pathlib import Path
 from loaders import load_input_intake
 from orchestrator.app_source import build_content_filename
 from orchestrator.pipeline import ImplementationPipeline
+from schemas.implementation.common import LocalCheckResult
 from schemas.implementation.implementation_spec import parse_markdown_spec
 from schemas.planning_package import PlanningReviewItem, ValidationStatus
 from tests.fakes import FakeLLMClient
@@ -235,6 +236,41 @@ def test_pipeline_records_invalid_target_framework_reason(tmp_path: Path) -> Non
     assert "is not recognized" in prototype_output["unsupported_reason"]
     assert "Known values: fastapi, nextjs, react, streamlit." in prototype_output["unsupported_reason"]
     assert "[UNSUPPORTED] target_framework=stramlit" in execution_log
+
+
+def test_pipeline_does_not_apply_fallback_for_package_pytest_only_failure(
+    tmp_path: Path,
+) -> None:
+    class PackagePytestFailingPipeline(ImplementationPipeline):
+        def _run_package_contract_check(self):
+            return LocalCheckResult(
+                check_name="package_pytest",
+                command="fake package pytest",
+                passed=False,
+                details="package contract failed",
+            )
+
+    pipeline = PackagePytestFailingPipeline(
+        llm_client=FakeLLMClient(no_patch=True),
+        spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    pipeline.run()
+
+    output_dir = tmp_path / "outputs"
+    prototype_output = json.loads(
+        (output_dir / "prototype_builder_output.json").read_text(encoding="utf-8")
+    )
+    app_source = (tmp_path / "app.py").read_text(encoding="utf-8")
+
+    assert prototype_output["generation_mode"] == "llm_generated"
+    assert prototype_output["fallback_used"] is False
+    assert "FALLBACK_USED" not in prototype_output["builder_errors"]
+    assert "LLM_GENERATED_APP_MARKER" in app_source
 
 
 def test_pipeline_reflection_patches_compile_failure(tmp_path: Path) -> None:

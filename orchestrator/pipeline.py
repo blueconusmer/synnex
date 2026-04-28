@@ -179,7 +179,8 @@ class ImplementationPipeline:
                 run_test_and_fix_output,
             )
 
-        if self._has_failed_checks(local_checks):
+        failed_app_checks = self._failed_app_checks(local_checks)
+        if failed_app_checks:
             run_test_and_fix_output = self._apply_fallback_template_after_reflection(
                 spec_intake_output=spec_intake_output,
                 requirement_mapping_output=requirement_mapping_output,
@@ -187,7 +188,7 @@ class ImplementationPipeline:
                 implementation_spec=spec,
                 prototype_builder_output=prototype_builder_output,
                 previous_run_test_and_fix_output=run_test_and_fix_output,
-                failed_checks=local_checks,
+                failed_checks=failed_app_checks,
             )
 
         qa_alignment_output = self._run_stage(
@@ -442,8 +443,13 @@ class ImplementationPipeline:
         return checks
 
     @staticmethod
-    def _has_failed_checks(checks: list[LocalCheckResult]) -> bool:
-        return any(not check.passed for check in checks)
+    def _failed_app_checks(checks: list[LocalCheckResult]) -> list[LocalCheckResult]:
+        app_check_names = {"py_compile", "streamlit_smoke"}
+        return [
+            check
+            for check in checks
+            if check.check_name in app_check_names and not check.passed
+        ]
 
     @staticmethod
     def _failure_codes_for_checks(checks: list[LocalCheckResult]) -> list[str]:
