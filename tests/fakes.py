@@ -373,11 +373,15 @@ class FakeLLMClient:
                         "generation_notes": ["invalid app source for fallback test"],
                     }
                 )
+            default_source = (
+                _build_quest_v2_llm_generated_streamlit_source(content_filename)
+                if _prompt_requires_v2_builder_contract(prompt)
+                else _build_llm_generated_streamlit_source(content_filename)
+            )
             return response_model.model_validate(
                 {
                     "app_path": "app.py",
-                    "app_source": self.app_source
-                    or _build_llm_generated_streamlit_source(content_filename),
+                    "app_source": self.app_source or default_source,
                     "generation_notes": ["fake LLM generated deterministic Streamlit app.py"],
                 }
             )
@@ -1268,6 +1272,9 @@ def render_multiple_choice_screen() -> None:
 
 def render_multiple_choice_result() -> None:
     st.write("객관식 결과")
+    if st.button("다음", key="next_mc"):
+        st.session_state.current_screen = SCREEN_IMPROVEMENT
+        st.rerun()
 
 
 def render_improvement_screen() -> None:
@@ -1282,6 +1289,13 @@ def render_improvement_screen() -> None:
 
 def render_improvement_result() -> None:
     st.write("개선형 결과")
+    if st.button("결과 보기", key="view_session_result"):
+        st.session_state.current_screen = SCREEN_SESSION_RESULT
+        st.rerun()
+
+
+def render_session_result() -> None:
+    st.write("세션 결과")
 
 
 def main() -> None:
@@ -1302,9 +1316,280 @@ def main() -> None:
         render_improvement_screen()
     elif st.session_state.current_screen == SCREEN_IMPROVEMENT_RESULT:
         render_improvement_result()
+    elif st.session_state.current_screen == SCREEN_SESSION_RESULT:
+        render_session_result()
     else:
         st.write(f"총 {{len(data.get('items', []))}}개 콘텐츠를 읽었습니다.")
 
 
 main()
 '''
+
+
+def _build_quest_v2_llm_generated_streamlit_source(content_filename: str) -> str:
+    return f'''from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import streamlit as st
+
+# LLM_GENERATED_APP_MARKER
+CONTENT_FILENAME = "{content_filename}"
+APP_DIR = Path(__file__).resolve().parent
+OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
+FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
+CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
+SCREEN_START = "S0"
+SCREEN_MULTIPLE_CHOICE = "S1"
+SCREEN_MULTIPLE_CHOICE_RESULT = "S2"
+SCREEN_IMPROVEMENT = "S3"
+SCREEN_IMPROVEMENT_RESULT = "S4"
+SCREEN_BATTLE = "S5"
+SCREEN_BATTLE_RESULT = "S6"
+SCREEN_BATTLE_COMPLETED = "S7"
+SCREEN_SESSION_RESULT = "S8"
+
+
+def resolve_content_path() -> Path | None:
+    for candidate in CONTENT_CANDIDATE_PATHS:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def load_contents() -> dict[str, Any]:
+    content_path = resolve_content_path()
+    if content_path is None:
+        return {{}}
+    return json.loads(content_path.read_text(encoding="utf-8"))
+
+
+def ensure_state() -> None:
+    st.session_state.setdefault("current_screen", SCREEN_START)
+    st.session_state.setdefault("session_quests", [])
+    st.session_state.setdefault("current_quest_index", 0)
+    st.session_state.setdefault("last_result", None)
+    st.session_state.setdefault("last_submission", "")
+    st.session_state.setdefault("battle_history", [])
+    st.session_state.setdefault("session_result", None)
+
+
+def normalize_quest(item: dict[str, Any]) -> dict[str, Any]:
+    options = list(item.get("choices", []))
+    correct_option_text = item.get("correct_choice")
+    correct_option_index = options.index(correct_option_text) if correct_option_text in options else None
+    return {{
+        "quest_id": item.get("item_id", "quest-1"),
+        "quest_type": item.get("quiz_type", "multiple_choice"),
+        "difficulty": item.get("difficulty", "main"),
+        "title": item.get("title", ""),
+        "question": item.get("question", ""),
+        "original_question": item.get("original_question", item.get("question", "")),
+        "topic_context": item.get("topic_context", ""),
+        "options": options,
+        "correct_option_text": correct_option_text,
+        "correct_option_index": correct_option_index,
+        "explanation": item.get("explanation", ""),
+        "learning_point": item.get("learning_point", ""),
+        "stage_level": item.get("stage_level", "round"),
+        "ai_question": item.get("ai_question", ""),
+        "situation": item.get("situation", ""),
+    }}
+
+
+def build_session_quests(data: dict[str, Any]) -> list[dict[str, Any]]:
+    return [normalize_quest(item) for item in data.get("items", [])]
+
+
+def screen_for_quest(quest: dict[str, Any]) -> str:
+    if quest.get("quest_type") == "multiple_choice":
+        return SCREEN_MULTIPLE_CHOICE
+    if quest.get("quest_type") == "battle":
+        return SCREEN_BATTLE
+    return SCREEN_IMPROVEMENT
+
+
+def api_session_start() -> dict[str, Any]:
+    data = load_contents()
+    quests = build_session_quests(data)
+    st.session_state.session_quests = quests
+    st.session_state.current_quest_index = 0
+    st.session_state.current_screen = screen_for_quest(quests[0]) if quests else SCREEN_START
+    st.session_state.last_result = None
+    st.session_state.battle_history = []
+    st.session_state.session_result = None
+    return {{"session_id": "quest-v2-fake", "quests": quests}}
+
+
+def api_quest_submit(user_response: Any) -> dict[str, Any]:
+    quest = st.session_state.session_quests[st.session_state.current_quest_index]
+    st.session_state.last_submission = user_response
+    if quest.get("quest_type") == "multiple_choice":
+        st.session_state.current_screen = SCREEN_MULTIPLE_CHOICE_RESULT
+    elif quest.get("quest_type") == "battle":
+        st.session_state.current_screen = SCREEN_BATTLE_RESULT
+    else:
+        st.session_state.current_screen = SCREEN_IMPROVEMENT_RESULT
+    result = {{
+        "answer_id": f"answer-{{quest['quest_id']}}",
+        "evaluation": {{"evaluation_type": "heuristic", "feedback": "테스트 응답입니다."}},
+        "earned_score": 10,
+        "is_session_complete": False,
+        "user_response": user_response,
+    }}
+    st.session_state.last_result = result
+    if quest.get("quest_type") == "battle":
+        st.session_state.battle_history.append(result)
+    return result
+
+
+def api_session_result() -> dict[str, Any]:
+    result = {{
+        "session_score": len(st.session_state.session_quests) * 10,
+        "current_grade": "silver",
+    }}
+    st.session_state.session_result = result
+    return result
+
+
+def advance_after_feedback() -> None:
+    current_index = st.session_state.current_quest_index
+    quests = st.session_state.session_quests
+    current_quest = quests[current_index]
+    if current_quest.get("quest_type") == "battle":
+        st.session_state.current_screen = SCREEN_BATTLE_COMPLETED
+        return
+    next_index = current_index + 1
+    if next_index >= len(quests):
+        api_session_result()
+        st.session_state.current_screen = SCREEN_SESSION_RESULT
+        return
+    st.session_state.current_quest_index = next_index
+    next_quest = quests[next_index]
+    if next_quest.get("quest_type") == "battle":
+        st.session_state.current_screen = SCREEN_BATTLE
+    elif next_quest.get("quest_type") == "multiple_choice":
+        st.session_state.current_screen = SCREEN_MULTIPLE_CHOICE
+    else:
+        st.session_state.current_screen = SCREEN_IMPROVEMENT
+
+
+def complete_battle_and_session() -> None:
+    api_session_result()
+    st.session_state.current_screen = SCREEN_SESSION_RESULT
+
+
+def render_multiple_choice_screen() -> None:
+    quest = st.session_state.session_quests[st.session_state.current_quest_index]
+    choice_key = f"choice_{{quest['quest_id']}}"
+    st.write(quest.get("question", ""))
+    st.radio("선택지를 고르세요.", quest.get("options", []), index=None, key=choice_key)
+    if st.button("제출", key="submit_mc"):
+        selected = st.session_state.get(choice_key)
+        if selected:
+            api_quest_submit(selected)
+            st.rerun()
+
+
+def render_multiple_choice_result() -> None:
+    st.write("객관식 결과")
+    if st.button("다음", key="next_mc"):
+        advance_after_feedback()
+        st.rerun()
+
+
+def render_improvement_screen() -> None:
+    quest = st.session_state.session_quests[st.session_state.current_quest_index]
+    text_key = f"text_{{quest['quest_id']}}"
+    st.write(quest.get("question", ""))
+    user_text = st.text_area("답변 입력", key=text_key)
+    if st.button("제출", key="submit_improvement") and user_text.strip():
+        api_quest_submit(user_text.strip())
+        st.rerun()
+
+
+def render_improvement_result() -> None:
+    st.write("개선형 결과")
+    if st.button("다음", key="next_improvement"):
+        advance_after_feedback()
+        st.rerun()
+
+
+def render_battle_screen() -> None:
+    quest = st.session_state.session_quests[st.session_state.current_quest_index]
+    text_key = f"battle_{{quest['quest_id']}}"
+    st.write(quest.get("question", ""))
+    user_text = st.text_area("배틀 답변 입력", key=text_key)
+    if st.button("배틀 제출", key="submit_battle") and user_text.strip():
+        api_quest_submit(user_text.strip())
+        st.rerun()
+
+
+def render_battle_result() -> None:
+    st.write("배틀 라운드 결과")
+    if st.button("배틀 완료", key="complete_battle"):
+        st.session_state.current_screen = SCREEN_BATTLE_COMPLETED
+        st.rerun()
+
+
+def render_battle_completed() -> None:
+    st.write("배틀 종료")
+    if st.button("세션 결과 보기", key="battle_to_session"):
+        complete_battle_and_session()
+        st.rerun()
+
+
+def render_session_result() -> None:
+    result = st.session_state.session_result or api_session_result()
+    st.write(result.get("current_grade", "silver"))
+
+
+def main() -> None:
+    st.set_page_config(page_title="LLM Generated MVP", layout="wide")
+    ensure_state()
+    st.title("LLM Generated MVP")
+    data = load_contents()
+    if not data:
+        st.warning("콘텐츠 파일을 찾지 못했습니다.")
+        return
+    if not st.session_state.session_quests:
+        api_session_start()
+    if st.session_state.current_screen == SCREEN_START:
+        if st.button("세션 시작", key="start_session"):
+            first_quest = st.session_state.session_quests[0]
+            st.session_state.current_screen = screen_for_quest(first_quest)
+            st.rerun()
+    elif st.session_state.current_screen == SCREEN_MULTIPLE_CHOICE:
+        render_multiple_choice_screen()
+    elif st.session_state.current_screen == SCREEN_MULTIPLE_CHOICE_RESULT:
+        render_multiple_choice_result()
+    elif st.session_state.current_screen == SCREEN_IMPROVEMENT:
+        render_improvement_screen()
+    elif st.session_state.current_screen == SCREEN_IMPROVEMENT_RESULT:
+        render_improvement_result()
+    elif st.session_state.current_screen == SCREEN_BATTLE:
+        render_battle_screen()
+    elif st.session_state.current_screen == SCREEN_BATTLE_RESULT:
+        render_battle_result()
+    elif st.session_state.current_screen == SCREEN_BATTLE_COMPLETED:
+        render_battle_completed()
+    elif st.session_state.current_screen == SCREEN_SESSION_RESULT:
+        render_session_result()
+    else:
+        st.write("알 수 없는 화면입니다.")
+
+
+main()
+'''
+
+
+def _prompt_requires_v2_builder_contract(prompt: str) -> bool:
+    markers = [
+        "requires_battle: true",
+        "/api/battle/submit",
+        '"quest_sequence": ["multiple_choice", "situation_card", "question_improvement", "situation_card", "battle"]',
+        "multiple_choice → situation_card → question_improvement → situation_card → battle",
+    ]
+    return any(marker in prompt for marker in markers)

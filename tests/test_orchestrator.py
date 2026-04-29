@@ -475,6 +475,10 @@ def test_pipeline_runs_for_question_quest_v2_baseline(tmp_path: Path) -> None:
     assert "interaction_units 수 확인" in qa_report
     assert "fallback template 사용 여부" in qa_report
     assert builder_output["target_framework"] == "streamlit"
+    assert builder_output["generation_mode"] == "llm_generated"
+    assert builder_output["fallback_used"] is False
+    assert "fallback_used: False" in final_summary
+    assert "fallback template 사용 여부: NO" in qa_report
 
 
 def test_feedback_router_targets_spec_intake_for_weak_spec(tmp_path: Path) -> None:
