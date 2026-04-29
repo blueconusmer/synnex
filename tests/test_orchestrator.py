@@ -73,6 +73,9 @@ def test_pipeline_with_fake_llm_generates_expected_outputs(tmp_path: Path) -> No
         "상황에 맞는 질문 만들기",
     }
     assert all("learning_dimension" in item for item in quiz_contents["items"])
+    assert quiz_contents["interaction_mode"] == "quiz"
+    assert len(quiz_contents["interaction_units"]) >= len(quiz_contents["items"]) * 2
+    assert quiz_contents["interaction_validation"]["structure_valid"] is True
     assert quiz_contents["semantic_validation"]["semantic_validator_passed"] is True
     assert quiz_contents["semantic_validation"]["quiz_type_distribution_valid"] is True
     assert quiz_contents["semantic_validation"]["learning_dimension_values_valid"] is True
@@ -107,10 +110,14 @@ def test_pipeline_with_planning_package_generates_service_named_contents(tmp_pat
     assert intake_report_path.exists()
     assert "Input Intake" in final_summary
     assert "Input Intake" in qa_report
+    assert "interaction_mode" in final_summary
+    assert "interaction_units 수" in qa_report
     assert content_path.exists()
     payload = json.loads(content_path.read_text(encoding="utf-8"))
     assert len(payload["items"]) == 3
     assert set(payload["quiz_types"]) == {"multiple_choice", "question_improvement"}
+    assert payload["interaction_mode"] == "quiz"
+    assert payload["interaction_validation"]["structure_valid"] is True
     assert [item["quiz_type"] for item in payload["items"]] == [
         "multiple_choice",
         "question_improvement",

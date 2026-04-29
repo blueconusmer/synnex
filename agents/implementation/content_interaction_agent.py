@@ -6,12 +6,14 @@ import json
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import Any
 
 from clients.llm import LLMClient
-from schemas.implementation.common import QuizItem
+from schemas.implementation.common import InteractionUnit, QuizItem
 from schemas.implementation.content_interaction import (
     ContentInteractionInput,
     ContentInteractionOutput,
+    InteractionValidationSummary,
     SemanticValidationItemResult,
     SemanticValidationSummary,
 )
@@ -78,6 +80,37 @@ DIRECT_DIMENSION_HINTS = {
     "맥락성": ["맥락", "상황", "배경", "과목", "시간", "장소"],
     "목적성": ["목적", "도움", "원하는", "예시", "방법", "설명", "알고 싶", "이유"],
 }
+QUIZ_MODE_MARKERS = [
+    "퀴즈",
+    "문항",
+    "객관식",
+    "정답",
+    "점수",
+    "배틀",
+    "quest",
+    "multiple_choice",
+    "question_improvement",
+    "situation_card",
+]
+COACHING_MODE_MARKERS = [
+    "챗봇",
+    "채팅",
+    "질문 입력",
+    "되묻기",
+    "follow_up",
+    "coaching",
+    "diagnosis",
+    "/api/chat",
+    "자유 입력",
+]
+INTERACTION_RESULT_TYPES = {
+    "diagnosis",
+    "feedback",
+    "coaching_feedback",
+    "score_summary",
+    "next_step_guide",
+    "display_content",
+}
 
 
 @dataclass
@@ -98,16 +131,18 @@ def run_content_interaction_agent(
     input_model: ContentInteractionInput,
     llm_client: LLMClient,
 ) -> ContentInteractionOutput:
-    """Generate quiz content and repair semantic mismatches with one regeneration pass."""
+    """Generate educational content plus interaction units with quiz backward compatibility."""
 
     content_types = _resolve_content_types(input_model)
     learning_dimensions = _resolve_learning_dimensions(input_model)
     expected_total = _resolve_expected_total(input_model)
     items_per_type = _resolve_items_per_type(input_model)
+    interaction_mode, interaction_mode_reason = _infer_interaction_mode(input_model)
     target_quiz_type_counts = _resolve_target_quiz_type_counts(
         content_types=content_types,
         expected_total=expected_total,
         items_per_type=items_per_type,
+        interaction_mode=interaction_mode,
     )
     service_name = _resolve_service_name(input_model)
 
@@ -119,34 +154,60 @@ def run_content_interaction_agent(
         learning_goals=json.dumps(learning_dimensions, ensure_ascii=False),
         total_count=expected_total,
         items_per_type=items_per_type,
+        interaction_mode=interaction_mode,
+        interaction_mode_reason=interaction_mode_reason,
     )
     output = llm_client.generate_json(
         prompt=prompt,
         response_model=ContentInteractionOutput,
-        system_prompt="You generate structured educational quiz content and interaction notes as valid JSON.",
+        system_prompt=(
+            "You generate structured educational content and interaction flows as valid JSON. "
+            "Always treat interaction_units as the primary interaction contract."
+        ),
     )
     output.agent = make_label(
         "Content & Interaction Agent",
         "교육 콘텐츠·상호작용 생성 Agent",
     )
 
-    _normalize_structural_contract(output)
-    summary = _repair_and_validate_content(
+    output.interaction_mode = interaction_mode
+    output.interaction_mode_reason = interaction_mode_reason
+    _normalize_interaction_metadata(output)
+
+    if interaction_mode == "quiz":
+        _normalize_structural_contract(output)
+        summary = _repair_and_validate_content(
+            output=output,
+            input_model=input_model,
+            llm_client=llm_client,
+            content_types=content_types,
+            learning_dimensions=learning_dimensions,
+            expected_total=expected_total,
+            target_quiz_type_counts=target_quiz_type_counts,
+        )
+        output.semantic_validation = summary
+        _synchronize_output_maps(output, content_types)
+        output.interaction_units = _synthesize_quiz_interaction_units(output.items)
+        output.evaluation_rules = _build_quiz_evaluation_rules(
+            output=output,
+            expected_total=expected_total,
+        )
+        _validate_content_contract(
+            output=output,
+            content_types=content_types,
+            learning_dimensions=learning_dimensions,
+            expected_total=expected_total,
+        )
+    else:
+        output.semantic_validation = None
+        output.evaluation_rules = _build_non_quiz_evaluation_rules(
+            output=output,
+            learning_dimensions=learning_dimensions,
+        )
+
+    output.interaction_validation = _validate_interaction_units(
         output=output,
-        input_model=input_model,
-        llm_client=llm_client,
-        content_types=content_types,
-        learning_dimensions=learning_dimensions,
-        expected_total=expected_total,
-        target_quiz_type_counts=target_quiz_type_counts,
-    )
-    output.semantic_validation = summary
-    _synchronize_output_maps(output, content_types)
-    _validate_content_contract(
-        output=output,
-        content_types=content_types,
-        learning_dimensions=learning_dimensions,
-        expected_total=expected_total,
+        interaction_mode=interaction_mode,
     )
     return output
 
@@ -186,12 +247,57 @@ def _resolve_service_name(input_model: ContentInteractionInput) -> str:
     return input_model.spec_intake_output.service_summary
 
 
+def _infer_interaction_mode(input_model: ContentInteractionInput) -> tuple[str, str]:
+    implementation_spec = input_model.implementation_spec
+    texts = [
+        input_model.spec_intake_output.service_summary,
+        *(input_model.spec_intake_output.normalized_requirements or []),
+        *(input_model.requirement_mapping_output.implementation_targets or []),
+        *(input_model.requirement_mapping_output.app_constraints or []),
+    ]
+    if implementation_spec is not None:
+        texts.extend(
+            [
+                implementation_spec.service_purpose,
+                *implementation_spec.core_features,
+                *implementation_spec.content_interaction_direction,
+                *implementation_spec.expected_outputs,
+            ]
+        )
+
+    joined = " ".join(texts).lower()
+    quiz_hits = [marker for marker in QUIZ_MODE_MARKERS if marker.lower() in joined]
+    coaching_hits = [marker for marker in COACHING_MODE_MARKERS if marker.lower() in joined]
+
+    if quiz_hits and not coaching_hits:
+        return "quiz", f"quiz markers detected: {', '.join(quiz_hits[:5])}"
+    if coaching_hits and not quiz_hits:
+        return "coaching", f"coaching markers detected: {', '.join(coaching_hits[:5])}"
+    if quiz_hits and coaching_hits:
+        return (
+            "general",
+            "conflicting quiz/coaching markers detected: "
+            f"quiz={', '.join(quiz_hits[:3])}; coaching={', '.join(coaching_hits[:3])}",
+        )
+    return "general", "no decisive quiz/coaching markers detected; using safe neutral general mode"
+
+
+def _normalize_interaction_metadata(output: ContentInteractionOutput) -> None:
+    if not output.flow_notes and output.interaction_notes:
+        output.flow_notes = list(output.interaction_notes)
+    if not output.interaction_notes and output.flow_notes:
+        output.interaction_notes = list(output.flow_notes)
+
+
 def _resolve_target_quiz_type_counts(
     *,
     content_types: list[str],
     expected_total: int,
     items_per_type: int,
+    interaction_mode: str,
 ) -> dict[str, int]:
+    if interaction_mode != "quiz":
+        return {}
     if not content_types:
         return {}
     if len(content_types) == 1:
@@ -335,6 +441,127 @@ def _normalize_structural_contract(output: ContentInteractionOutput) -> None:
             item.topic_context = item.learning_dimension or "학습 맥락"
         if not item.original_question:
             item.original_question = item.question
+
+
+def _synthesize_quiz_interaction_units(items: list[QuizItem]) -> list[InteractionUnit]:
+    units: list[InteractionUnit] = []
+    for item in items:
+        action_type = "free_text_input" if item.quiz_type == "question_improvement" else "multiple_choice"
+        action_unit = InteractionUnit(
+            unit_id=f"{item.item_id}_action",
+            interaction_type=action_type,
+            title=item.title,
+            learner_action=item.question,
+            system_response=item.topic_context or item.learning_dimension,
+            input_format="free_text" if action_type == "free_text_input" else "multiple_choice",
+            feedback_rule=(
+                "사용자 응답 후 정답, 해설, 학습 포인트를 포함한 결과 피드백을 보여 준다."
+            ),
+            learning_dimension=item.learning_dimension,
+            metadata={
+                "source_item_id": item.item_id,
+                "quiz_type": item.quiz_type,
+                "choices": list(item.choices),
+                "correct_choice": item.correct_choice,
+                "difficulty": item.difficulty,
+                "topic_context": item.topic_context,
+                "original_question": item.original_question,
+            },
+        )
+        feedback_unit = InteractionUnit(
+            unit_id=f"{item.item_id}_feedback",
+            interaction_type="feedback",
+            title=f"{item.title} 결과",
+            learner_action="",
+            system_response=item.explanation,
+            input_format="",
+            feedback_rule="정답, 해설, 학습 포인트를 보여 주고 다음 단계로 이동시킨다.",
+            learning_dimension=item.learning_dimension,
+            metadata={
+                "source_item_id": item.item_id,
+                "correct_choice": item.correct_choice,
+                "explanation": item.explanation,
+                "learning_point": item.learning_point,
+                "choices": list(item.choices),
+            },
+        )
+        units.extend([action_unit, feedback_unit])
+
+    summary_unit = InteractionUnit(
+        unit_id="session_summary",
+        interaction_type="score_summary",
+        title="세션 요약",
+        learner_action="",
+        system_response="전체 세션 결과와 학습 포인트를 요약해 보여 준다.",
+        feedback_rule="세션 종료 시 전체 결과를 요약한다.",
+        metadata={"source": "quiz_session"},
+        next_step="END",
+    )
+    units.append(summary_unit)
+
+    for index, unit in enumerate(units):
+        if unit.next_step:
+            continue
+        unit.next_step = units[index + 1].unit_id if index + 1 < len(units) else "END"
+
+    return units
+
+
+def _build_quiz_evaluation_rules(
+    *,
+    output: ContentInteractionOutput,
+    expected_total: int,
+) -> dict[str, Any]:
+    if output.evaluation_rules:
+        merged = dict(output.evaluation_rules)
+        merged.setdefault("mode", "quiz")
+        merged.setdefault("expected_total", expected_total)
+        merged.setdefault("feedback_type", "feedback")
+        return merged
+    return {
+        "mode": "quiz",
+        "expected_total": expected_total,
+        "answer_key_mode": "item_id_to_correct_choice",
+        "score_policy": {
+            "per_item": 1,
+            "total_items": expected_total,
+        },
+        "feedback_type": "feedback",
+        "feedback_policy": "정답, 해설, 학습 포인트를 각 문항 결과에서 제공한다.",
+    }
+
+
+def _build_non_quiz_evaluation_rules(
+    *,
+    output: ContentInteractionOutput,
+    learning_dimensions: list[str],
+) -> dict[str, Any]:
+    if output.evaluation_rules:
+        merged = dict(output.evaluation_rules)
+        merged.setdefault("mode", output.interaction_mode)
+        merged.setdefault("diagnosis_criteria", list(learning_dimensions))
+        merged.setdefault("completion_rule", "next_step가 END에 도달하면 세션을 종료한다.")
+        merged.setdefault(
+            "feedback_types",
+            {
+                "feedback": "정답/해설/결과에 대한 일반 피드백",
+                "coaching_feedback": "사용자 자유 입력을 바탕으로 개선 방향을 제안하는 코칭형 피드백",
+            },
+        )
+        return merged
+    return {
+        "mode": output.interaction_mode,
+        "diagnosis_criteria": list(learning_dimensions),
+        "feedback_policy": (
+            "interaction_units의 learner_action, system_response, feedback_rule을 기준으로 "
+            "진단과 후속 피드백을 제공한다."
+        ),
+        "completion_rule": "next_step가 END에 도달하면 세션을 종료한다.",
+        "feedback_types": {
+            "feedback": "정답/해설/결과에 대한 일반 피드백",
+            "coaching_feedback": "사용자 자유 입력을 바탕으로 개선 방향을 제안하는 코칭형 피드백",
+        },
+    }
 
 
 def _synchronize_output_maps(output: ContentInteractionOutput, content_types: list[str]) -> None:
@@ -853,6 +1080,68 @@ def _build_item_results(
             )
         )
     return results
+
+
+def _validate_interaction_units(
+    *,
+    output: ContentInteractionOutput,
+    interaction_mode: str,
+) -> InteractionValidationSummary:
+    issues: list[str] = []
+    units = output.interaction_units
+
+    if interaction_mode in {"coaching", "general"} and not units:
+        issues.append("interaction_units must not be empty for coaching/general mode.")
+    if interaction_mode == "quiz" and output.items and not units:
+        issues.append("interaction_units must be synthesized or provided for quiz mode.")
+
+    unit_ids = [unit.unit_id for unit in units]
+    duplicate_ids = [unit_id for unit_id, count in Counter(unit_ids).items() if count > 1]
+    if duplicate_ids:
+        issues.append(f"interaction_units contain duplicate unit_id values: {duplicate_ids}.")
+
+    valid_targets = set(unit_ids)
+    for unit in units:
+        if not unit.interaction_type:
+            issues.append(f"{unit.unit_id} is missing interaction_type.")
+        if unit.next_step and unit.next_step != "END" and unit.next_step not in valid_targets:
+            issues.append(
+                f"{unit.unit_id} next_step points to missing unit_id {unit.next_step!r}."
+            )
+        if unit.interaction_type == "multiple_choice":
+            choices = unit.metadata.get("choices")
+            correct_choice = unit.metadata.get("correct_choice")
+            if not isinstance(choices, list) or not choices:
+                issues.append(f"{unit.unit_id} multiple_choice metadata must include choices.")
+            if not isinstance(correct_choice, str) or not correct_choice:
+                issues.append(
+                    f"{unit.unit_id} multiple_choice metadata must include correct_choice."
+                )
+        if unit.interaction_type == "free_text_input" and not (
+            unit.learner_action or unit.input_format
+        ):
+            issues.append(
+                f"{unit.unit_id} free_text_input must describe learner_action or input_format."
+            )
+        if unit.interaction_type in INTERACTION_RESULT_TYPES and not (
+            unit.system_response or unit.metadata
+        ):
+            issues.append(
+                f"{unit.unit_id} {unit.interaction_type} must include system_response or metadata."
+            )
+
+    structure_valid = not issues
+    if not structure_valid:
+        raise ValueError("Interaction-unit validation failed. " + " | ".join(issues))
+
+    return InteractionValidationSummary(
+        interaction_mode=interaction_mode,
+        mode_inference_reason=output.interaction_mode_reason,
+        unit_count=len(units),
+        unit_type_counts=dict(Counter(unit.interaction_type for unit in units)),
+        structure_valid=structure_valid,
+        issues=issues,
+    )
 
 
 def _validate_content_contract(

@@ -272,6 +272,14 @@ def _build_app_generation_prompt(
         "state_machine": package_context.get("state_machine", ""),
         "data_schema": package_context.get("data_schema", ""),
         "prompt_spec": package_context.get("prompt_spec", ""),
+        "interaction_mode": input_model.content_interaction_output.interaction_mode,
+        "interaction_mode_reason": input_model.content_interaction_output.interaction_mode_reason,
+        "interaction_units": [
+            unit.model_dump(mode="json")
+            for unit in input_model.content_interaction_output.interaction_units
+        ],
+        "flow_notes": input_model.content_interaction_output.flow_notes,
+        "evaluation_rules": input_model.content_interaction_output.evaluation_rules,
     }
     return prompt_template.format(
         target_framework=context["target_framework"],
@@ -295,6 +303,15 @@ def _build_app_generation_prompt(
         state_machine=context["state_machine"],
         data_schema=context["data_schema"],
         prompt_spec=context["prompt_spec"],
+        interaction_mode=context["interaction_mode"],
+        interaction_mode_reason=context["interaction_mode_reason"],
+        interaction_units=json.dumps(context["interaction_units"], ensure_ascii=False, indent=2),
+        flow_notes=json.dumps(context["flow_notes"], ensure_ascii=False, indent=2),
+        evaluation_rules=json.dumps(
+            context["evaluation_rules"],
+            ensure_ascii=False,
+            indent=2,
+        ),
     )
 
 
@@ -579,6 +596,8 @@ def _build_generation_inputs_summary(input_model: PrototypeBuilderInput) -> list
         f"service_purpose={'present' if spec.service_purpose else 'missing'}",
         f"target_user_count={len(spec.target_users)}",
         f"mvp_scope_count={len(spec.core_features)}",
+        f"interaction_mode={input_model.content_interaction_output.interaction_mode}",
+        f"interaction_unit_count={len(input_model.content_interaction_output.interaction_units)}",
         "spec_intake_output",
         "requirement_mapping_output",
         "content_interaction_output",
