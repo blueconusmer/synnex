@@ -5,7 +5,9 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from agents.implementation.content_interaction_agent import run_content_interaction_agent
 from agents.implementation.prototype_builder_agent import (
@@ -19,9 +21,15 @@ from agents.implementation.run_test_and_fix_agent import run_run_test_and_fix_ag
 from agents.implementation.spec_intake_agent import run_spec_intake_agent
 from clients.llm import LLMClient
 from orchestrator.app_source import build_content_filename
+from orchestrator.feedback_routing import build_orchestration_decision
 from schemas.implementation.common import LocalCheckResult, SchemaModel
 from schemas.implementation.content_interaction import ContentInteractionInput
 from schemas.implementation.implementation_spec import ImplementationSpec, parse_markdown_spec
+from schemas.implementation.orchestration_decision import (
+    OrchestrationDecision,
+    RetryHistoryEntry,
+    RetryInstruction,
+)
 from schemas.implementation.prototype_builder import PrototypeBuilderInput
 from schemas.implementation.qa_alignment import QAAlignmentInput
 from schemas.implementation.requirement_mapping import RequirementMappingInput
@@ -56,6 +64,8 @@ class ImplementationPipeline:
         self.python_executable = python_executable or sys.executable
         self.enable_streamlit_smoke = enable_streamlit_smoke
         self.logs: list[str] = []
+        self.orchestration_decision: OrchestrationDecision | None = None
+        self.retry_history: list[RetryHistoryEntry] = []
 
     def run(self) -> dict[str, SchemaModel]:
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -67,25 +77,312 @@ class ImplementationPipeline:
             self._save_json(self.output_dir / "input_intake_report.json", self.input_intake_result)
             self._log(f"[INFO] Input intake status: {self.input_intake_result.status.value}")
 
-        spec_intake_output = self._run_stage(
+        self.orchestration_decision = None
+        self.retry_history = []
+        stage_outputs = self._run_pipeline_cycle(
+            spec=spec,
+            content_filename=content_filename,
+            retry_contexts={},
+            start_stage="SPEC_INTAKE",
+            previous_outputs=None,
+        )
+        prototype_builder_output = stage_outputs["prototype_builder_output"]
+        if not prototype_builder_output.is_supported:
+            return self._finish_unsupported_framework(
+                spec=spec,
+                spec_intake_output=stage_outputs["spec_intake_output"],
+                requirement_mapping_output=stage_outputs["requirement_mapping_output"],
+                content_interaction_output=stage_outputs["quiz_contents"],
+                prototype_builder_output=prototype_builder_output,
+            )
+
+        decision = self._build_feedback_decision(
+            spec=spec,
+            stage_outputs=stage_outputs,
+            retry_count=0,
+        )
+        retry_count = 0
+        last_target = ""
+        same_target_streak = 0
+
+        while decision.retry_required:
+            target = decision.target_agent
+            if target in {"NONE", "HUMAN_REVIEW"}:
+                break
+            if retry_count >= decision.max_retry_count:
+                decision = self._build_human_review_decision(
+                    decision=decision,
+                    retry_count=retry_count,
+                    reason="Retry budget was exhausted before the issue was resolved.",
+                )
+                break
+
+            if last_target == target:
+                same_target_streak += 1
+            else:
+                same_target_streak = 1
+            if same_target_streak > 2:
+                decision = self._build_human_review_decision(
+                    decision=decision,
+                    retry_count=retry_count,
+                    reason=f"Same target agent {target} was selected more than twice consecutively.",
+                )
+                break
+
+            retry_count += 1
+            self._log(
+                f"[RETRY] Cycle {retry_count}/{decision.max_retry_count} -> {target}: "
+                f"{decision.retry_instruction.summary or decision.reason}"
+            )
+            self.retry_history.append(
+                RetryHistoryEntry(
+                    cycle_index=retry_count,
+                    issue_type=decision.issue_type,
+                    target_agent=target,
+                    llm_judge_used=decision.llm_judge_used,
+                    instruction_summary=decision.retry_instruction.summary,
+                    result_status="RUNNING",
+                    notes=list(decision.retry_instruction.must_fix),
+                )
+            )
+            last_target = target
+
+            stage_outputs = self._run_pipeline_cycle(
+                spec=spec,
+                content_filename=content_filename,
+                retry_contexts={target: decision.retry_instruction},
+                start_stage=target,
+                previous_outputs=stage_outputs,
+            )
+            prototype_builder_output = stage_outputs["prototype_builder_output"]
+            if not prototype_builder_output.is_supported:
+                decision = self._build_human_review_decision(
+                    decision=decision,
+                    retry_count=retry_count,
+                    reason="Prototype Builder became unsupported during a retry cycle.",
+                )
+                self.retry_history[-1].result_status = "NEEDS_HUMAN_REVIEW"
+                self.retry_history[-1].notes.append(decision.reason)
+                break
+
+            next_decision = self._build_feedback_decision(
+                spec=spec,
+                stage_outputs=stage_outputs,
+                retry_count=retry_count,
+            )
+            if not next_decision.retry_required and next_decision.overall_status == "PASS":
+                next_decision = next_decision.model_copy(
+                    update={
+                        "overall_status": "RETRY_COMPLETED",
+                        "retry_count": retry_count,
+                        "reason": (
+                            "Upstream feedback retry completed and the latest outputs no longer "
+                            "require an additional upstream retry."
+                        ),
+                        "recommended_action": "Proceed with the retried outputs.",
+                        "should_stop": True,
+                        "stop_reason": "Retry resolved the upstream interpretation issue.",
+                    }
+                )
+            self.retry_history[-1].result_status = next_decision.overall_status
+            self.retry_history[-1].notes.append(next_decision.reason)
+            decision = next_decision
+
+        self.orchestration_decision = decision
+        self._save_json(self.output_dir / "orchestration_decision.json", decision)
+        self._save_json_data(
+            self.output_dir / "retry_history.json",
+            [entry.model_dump(mode="json") for entry in self.retry_history],
+        )
+
+        spec_intake_output = stage_outputs["spec_intake_output"]
+        requirement_mapping_output = stage_outputs["requirement_mapping_output"]
+        content_interaction_output = stage_outputs["quiz_contents"]
+        prototype_builder_output = stage_outputs["prototype_builder_output"]
+        run_test_and_fix_output = stage_outputs["run_test_and_fix_output"]
+        qa_alignment_output = stage_outputs["qa_alignment_output"]
+
+        self._write_execution_log()
+        self._write_change_log(qa_alignment_output.change_log_entries)
+        self._write_qa_report(qa_alignment_output)
+        self._write_final_summary(
+            spec,
+            spec_intake_output.service_summary,
+            requirement_mapping_output.implementation_targets,
+            content_interaction_output,
+            prototype_builder_output,
+            run_test_and_fix_output,
+            qa_alignment_output.final_summary_points,
+        )
+
+        return {
+            "input_intake_result": self.input_intake_result,
+            "spec_intake_output": spec_intake_output,
+            "requirement_mapping_output": requirement_mapping_output,
+            "quiz_contents": content_interaction_output,
+            "prototype_builder_output": prototype_builder_output,
+            "run_test_and_fix_output": run_test_and_fix_output,
+            "qa_alignment_output": qa_alignment_output,
+            "orchestration_decision": decision,
+        }
+
+    def _run_stage(self, *, stage_title: str, output_name: str, runner) -> SchemaModel:
+        self._log(f"[RUNNING] {stage_title}")
+        result = runner()
+        output_path = self.output_dir / output_name
+        self._save_json(output_path, result)
+        self._log(f"[SUCCESS] {stage_title}")
+        self._log(f"[OUTPUT] {output_path}")
+        return result
+
+    def _save_json(self, path: Path, model: SchemaModel) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(model.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _save_json_data(self, path: Path, payload: Any) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _run_pipeline_cycle(
+        self,
+        *,
+        spec: ImplementationSpec,
+        content_filename: str,
+        retry_contexts: Mapping[str, RetryInstruction],
+        start_stage: str,
+        previous_outputs: dict[str, SchemaModel] | None,
+    ) -> dict[str, SchemaModel]:
+        spec_intake_output = self._run_or_reuse_spec_intake(
+            spec=spec,
+            retry_context=retry_contexts.get("SPEC_INTAKE"),
+            start_stage=start_stage,
+            previous_outputs=previous_outputs,
+        )
+        requirement_mapping_output = self._run_or_reuse_requirement_mapping(
+            spec_intake_output=spec_intake_output,
+            retry_context=retry_contexts.get("REQUIREMENT_MAPPING"),
+            start_stage=start_stage,
+            previous_outputs=previous_outputs,
+        )
+        content_interaction_output = self._run_or_reuse_content_interaction(
+            spec=spec,
+            spec_intake_output=spec_intake_output,
+            requirement_mapping_output=requirement_mapping_output,
+            retry_context=retry_contexts.get("CONTENT_INTERACTION"),
+            content_filename=content_filename,
+            start_stage=start_stage,
+            previous_outputs=previous_outputs,
+        )
+        prototype_builder_output, run_test_and_fix_output = self._run_builder_runtime_chain(
+            spec=spec,
+            content_filename=content_filename,
+            spec_intake_output=spec_intake_output,
+            requirement_mapping_output=requirement_mapping_output,
+            content_interaction_output=content_interaction_output,
+        )
+        if not prototype_builder_output.is_supported:
+            return {
+                "spec_intake_output": spec_intake_output,
+                "requirement_mapping_output": requirement_mapping_output,
+                "quiz_contents": content_interaction_output,
+                "prototype_builder_output": prototype_builder_output,
+            }
+
+        qa_alignment_output = self._run_stage(
+            stage_title="QA & Alignment Agent / 최종 검수·정합성 확인 Agent",
+            output_name="qa_alignment_output.json",
+            runner=lambda: run_qa_alignment_agent(
+                QAAlignmentInput(
+                    spec_intake_output=spec_intake_output,
+                    requirement_mapping_output=requirement_mapping_output,
+                    content_interaction_output=content_interaction_output,
+                    prototype_builder_output=prototype_builder_output,
+                    run_test_and_fix_output=run_test_and_fix_output,
+                    implementation_spec=spec,
+                ),
+                self.llm_client,
+            ),
+        )
+        return {
+            "spec_intake_output": spec_intake_output,
+            "requirement_mapping_output": requirement_mapping_output,
+            "quiz_contents": content_interaction_output,
+            "prototype_builder_output": prototype_builder_output,
+            "run_test_and_fix_output": run_test_and_fix_output,
+            "qa_alignment_output": qa_alignment_output,
+        }
+
+    def _run_or_reuse_spec_intake(
+        self,
+        *,
+        spec: ImplementationSpec,
+        retry_context: RetryInstruction | None,
+        start_stage: str,
+        previous_outputs: dict[str, SchemaModel] | None,
+    ):
+        if previous_outputs is not None and start_stage != "SPEC_INTAKE":
+            self._log("[REUSE] Spec Intake output")
+            return previous_outputs["spec_intake_output"]
+        return self._run_stage(
             stage_title="Spec Intake Agent / 구현 명세서 분석 Agent",
             output_name="spec_intake_output.json",
             runner=lambda: run_spec_intake_agent(
-                SpecIntakeInput(implementation_spec=spec),
+                SpecIntakeInput(
+                    implementation_spec=spec,
+                    retry_instruction=retry_context,
+                ),
                 self.llm_client,
             ),
         )
 
-        requirement_mapping_output = self._run_stage(
+    def _run_or_reuse_requirement_mapping(
+        self,
+        *,
+        spec_intake_output,
+        retry_context: RetryInstruction | None,
+        start_stage: str,
+        previous_outputs: dict[str, SchemaModel] | None,
+    ):
+        if previous_outputs is not None and start_stage == "CONTENT_INTERACTION":
+            self._log("[REUSE] Requirement Mapping output")
+            return previous_outputs["requirement_mapping_output"]
+        return self._run_stage(
             stage_title="Requirement Mapping Agent / 구현 요구사항 정리 Agent",
             output_name="requirement_mapping_output.json",
             runner=lambda: run_requirement_mapping_agent(
-                RequirementMappingInput(spec_intake_output=spec_intake_output),
+                RequirementMappingInput(
+                    spec_intake_output=spec_intake_output,
+                    retry_instruction=retry_context,
+                ),
                 self.llm_client,
             ),
         )
 
-        content_interaction_output = self._run_stage(
+    def _run_or_reuse_content_interaction(
+        self,
+        *,
+        spec: ImplementationSpec,
+        spec_intake_output,
+        requirement_mapping_output,
+        retry_context: RetryInstruction | None,
+        content_filename: str,
+        start_stage: str,
+        previous_outputs: dict[str, SchemaModel] | None,
+    ):
+        if previous_outputs is not None and start_stage not in {
+            "SPEC_INTAKE",
+            "REQUIREMENT_MAPPING",
+            "CONTENT_INTERACTION",
+        }:
+            self._log("[REUSE] Content & Interaction output")
+            return previous_outputs["quiz_contents"]
+        return self._run_stage(
             stage_title="Content & Interaction Agent / 교육 콘텐츠·상호작용 생성 Agent",
             output_name=content_filename,
             runner=lambda: run_content_interaction_agent(
@@ -93,11 +390,21 @@ class ImplementationPipeline:
                     spec_intake_output=spec_intake_output,
                     requirement_mapping_output=requirement_mapping_output,
                     implementation_spec=spec,
+                    retry_instruction=retry_context,
                 ),
                 self.llm_client,
             ),
         )
 
+    def _run_builder_runtime_chain(
+        self,
+        *,
+        spec: ImplementationSpec,
+        content_filename: str,
+        spec_intake_output,
+        requirement_mapping_output,
+        content_interaction_output,
+    ):
         prototype_builder_output = self._run_stage(
             stage_title="Prototype Builder Agent / MVP 서비스 코드 생성 Agent",
             output_name="prototype_builder_output.json",
@@ -121,13 +428,7 @@ class ImplementationPipeline:
             prototype_builder_output,
         )
         if not prototype_builder_output.is_supported:
-            return self._finish_unsupported_framework(
-                spec=spec,
-                spec_intake_output=spec_intake_output,
-                requirement_mapping_output=requirement_mapping_output,
-                content_interaction_output=content_interaction_output,
-                prototype_builder_output=prototype_builder_output,
-            )
+            return prototype_builder_output, None
 
         self._materialize_generated_files(prototype_builder_output.generated_files)
 
@@ -190,60 +491,46 @@ class ImplementationPipeline:
                 previous_run_test_and_fix_output=run_test_and_fix_output,
                 failed_checks=failed_app_checks,
             )
+        return prototype_builder_output, run_test_and_fix_output
 
-        qa_alignment_output = self._run_stage(
-            stage_title="QA & Alignment Agent / 최종 검수·정합성 확인 Agent",
-            output_name="qa_alignment_output.json",
-            runner=lambda: run_qa_alignment_agent(
-                QAAlignmentInput(
-                    spec_intake_output=spec_intake_output,
-                    requirement_mapping_output=requirement_mapping_output,
-                    content_interaction_output=content_interaction_output,
-                    prototype_builder_output=prototype_builder_output,
-                    run_test_and_fix_output=run_test_and_fix_output,
-                    implementation_spec=spec,
-                ),
-                self.llm_client,
-            ),
+    def _build_feedback_decision(
+        self,
+        *,
+        spec: ImplementationSpec,
+        stage_outputs: dict[str, SchemaModel],
+        retry_count: int,
+    ) -> OrchestrationDecision:
+        return build_orchestration_decision(
+            llm_client=self.llm_client,
+            implementation_spec=spec,
+            input_intake_result=self.input_intake_result,
+            spec_intake_output=stage_outputs["spec_intake_output"],
+            requirement_mapping_output=stage_outputs["requirement_mapping_output"],
+            content_interaction_output=stage_outputs["quiz_contents"],
+            prototype_builder_output=stage_outputs["prototype_builder_output"],
+            run_test_and_fix_output=stage_outputs["run_test_and_fix_output"],
+            qa_alignment_output=stage_outputs["qa_alignment_output"],
+            retry_count=retry_count,
         )
 
-        self._write_execution_log()
-        self._write_change_log(qa_alignment_output.change_log_entries)
-        self._write_qa_report(qa_alignment_output)
-        self._write_final_summary(
-            spec,
-            spec_intake_output.service_summary,
-            requirement_mapping_output.implementation_targets,
-            content_interaction_output,
-            prototype_builder_output,
-            run_test_and_fix_output,
-            qa_alignment_output.final_summary_points,
-        )
-
-        return {
-            "input_intake_result": self.input_intake_result,
-            "spec_intake_output": spec_intake_output,
-            "requirement_mapping_output": requirement_mapping_output,
-            "quiz_contents": content_interaction_output,
-            "prototype_builder_output": prototype_builder_output,
-            "run_test_and_fix_output": run_test_and_fix_output,
-            "qa_alignment_output": qa_alignment_output,
-        }
-
-    def _run_stage(self, *, stage_title: str, output_name: str, runner) -> SchemaModel:
-        self._log(f"[RUNNING] {stage_title}")
-        result = runner()
-        output_path = self.output_dir / output_name
-        self._save_json(output_path, result)
-        self._log(f"[SUCCESS] {stage_title}")
-        self._log(f"[OUTPUT] {output_path}")
-        return result
-
-    def _save_json(self, path: Path, model: SchemaModel) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(model.model_dump(mode="json"), ensure_ascii=False, indent=2),
-            encoding="utf-8",
+    def _build_human_review_decision(
+        self,
+        *,
+        decision: OrchestrationDecision,
+        retry_count: int,
+        reason: str,
+    ) -> OrchestrationDecision:
+        return decision.model_copy(
+            update={
+                "overall_status": "NEEDS_HUMAN_REVIEW",
+                "target_agent": "HUMAN_REVIEW",
+                "retry_required": False,
+                "retry_count": retry_count,
+                "should_stop": True,
+                "stop_reason": reason,
+                "reason": reason,
+                "recommended_action": "Escalate to human review.",
+            }
         )
 
     def _normalize_prototype_builder_output(
@@ -587,6 +874,20 @@ class ImplementationPipeline:
             lines.append("- No additional implementation changes were required during execution.")
         else:
             lines.extend(f"- {entry}" for entry in entries)
+        if self.retry_history:
+            lines.extend(["", "## Feedback Loop"])
+            lines.extend(
+                (
+                    f"- cycle {entry.cycle_index}: target={entry.target_agent}, "
+                    f"issue={entry.issue_type}, result={entry.result_status}, "
+                    f"llm_judge_used={entry.llm_judge_used}"
+                )
+                for entry in self.retry_history
+            )
+        if self.orchestration_decision is not None:
+            lines.append(
+                f"- final orchestration status: {self.orchestration_decision.overall_status}"
+            )
         (self.output_dir / "change_log.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _write_unsupported_change_log(self, prototype_builder_output) -> None:
@@ -706,6 +1007,27 @@ class ImplementationPipeline:
             lines.extend(f"- {issue}" for issue in qa_output.qa_issues)
         else:
             lines.append("- No blocking QA issues were reported.")
+        if self.orchestration_decision is not None:
+            lines.extend(
+                [
+                    "",
+                    "## Feedback Loop Summary",
+                    f"- overall_status: {self.orchestration_decision.overall_status}",
+                    f"- issue_type: {self.orchestration_decision.issue_type}",
+                    f"- target_agent: {self.orchestration_decision.target_agent}",
+                    f"- retry_count: {self.orchestration_decision.retry_count}",
+                    f"- llm_judge_used: {self.orchestration_decision.llm_judge_used}",
+                    f"- should_stop: {self.orchestration_decision.should_stop}",
+                ]
+            )
+            if self.orchestration_decision.stop_reason:
+                lines.append(f"- stop_reason: {self.orchestration_decision.stop_reason}")
+            if self.retry_history:
+                lines.append("- retry_history:")
+                lines.extend(
+                    f"- cycle {entry.cycle_index}: {entry.target_agent} -> {entry.result_status}"
+                    for entry in self.retry_history
+                )
         (self.output_dir / "qa_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _write_final_summary(
@@ -860,6 +1182,28 @@ class ImplementationPipeline:
             )
         lines.extend(["", "## 최종 요약 포인트"])
         lines.extend(f"- {point}" for point in final_summary_points)
+        if self.orchestration_decision is not None:
+            lines.extend(
+                [
+                    "",
+                    "## Feedback Loop Summary",
+                    f"- overall_status: {self.orchestration_decision.overall_status}",
+                    f"- issue_type: {self.orchestration_decision.issue_type}",
+                    f"- target_agent: {self.orchestration_decision.target_agent}",
+                    f"- retry_count: {self.orchestration_decision.retry_count}",
+                    f"- llm_judge_used: {self.orchestration_decision.llm_judge_used}",
+                    f"- fallback_used: {prototype_builder_output.fallback_used}",
+                    f"- should_stop: {self.orchestration_decision.should_stop}",
+                ]
+            )
+            if self.orchestration_decision.stop_reason:
+                lines.append(f"- stop_reason: {self.orchestration_decision.stop_reason}")
+            if self.retry_history:
+                lines.append("- retry_history:")
+                lines.extend(
+                    f"- cycle {entry.cycle_index}: {entry.target_agent} -> {entry.result_status}"
+                    for entry in self.retry_history
+                )
         (self.output_dir / "final_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _log(self, message: str) -> None:

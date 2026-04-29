@@ -6,6 +6,7 @@ import re
 from orchestrator.app_source import build_streamlit_app_source
 from schemas.implementation.content_interaction import ContentInteractionOutput
 from schemas.implementation.common import QuizItem
+from schemas.implementation.orchestration_decision import OrchestrationJudgeOutput
 from schemas.implementation.prototype_builder import AppSourceGenerationOutput
 from schemas.implementation.prototype_builder import PrototypeBuilderOutput
 from schemas.implementation.qa_alignment import QAAlignmentOutput
@@ -33,19 +34,47 @@ class FakeLLMClient:
         invalid_app_generation: bool = False,
         patch_source: str | None = None,
         no_patch: bool = False,
+        weak_spec_first_pass: bool = False,
+        weak_requirement_first_pass: bool = False,
+        invalid_content_first_pass: bool = False,
+        judge_target: str = "CONTENT_INTERACTION",
+        judge_fail: bool = False,
+        judge_invalid_output: bool = False,
     ) -> None:
         self.app_source = app_source
         self.fail_app_generation = fail_app_generation
         self.invalid_app_generation = invalid_app_generation
         self.patch_source = patch_source
         self.no_patch = no_patch
+        self.weak_spec_first_pass = weak_spec_first_pass
+        self.weak_requirement_first_pass = weak_requirement_first_pass
+        self.invalid_content_first_pass = invalid_content_first_pass
+        self.judge_target = judge_target
+        self.judge_fail = judge_fail
+        self.judge_invalid_output = judge_invalid_output
         self.prompts: list[str] = []
+        self.response_call_counts: dict[str, int] = {}
 
     def generate_json(self, *, prompt: str, response_model, system_prompt: str | None = None):
         self.prompts.append(prompt)
         response_name = response_model.__name__
+        self.response_call_counts[response_name] = self.response_call_counts.get(response_name, 0) + 1
 
         if response_name == SpecIntakeOutput.__name__:
+            if self.weak_spec_first_pass and not _prompt_has_retry_instruction(prompt):
+                return response_model.model_validate(
+                    {
+                        "agent": {
+                            "english_name": "Spec Intake Agent",
+                            "korean_name": "구현 명세서 분석 Agent",
+                        },
+                        "team_identity": "교육 서비스 구현 전문 AI Agent 팀",
+                        "service_summary": "퀴즈 서비스",
+                        "normalized_requirements": [],
+                        "delivery_expectations": [],
+                        "acceptance_focus": [],
+                    }
+                )
             return response_model.model_validate(
                 {
                     "agent": {
@@ -75,6 +104,25 @@ class FakeLLMClient:
             )
 
         if response_name == RequirementMappingOutput.__name__:
+            if self.weak_requirement_first_pass and not _prompt_has_retry_instruction(prompt):
+                return response_model.model_validate(
+                    {
+                        "agent": {
+                            "english_name": "Requirement Mapping Agent",
+                            "korean_name": "구현 요구사항 정리 Agent",
+                        },
+                        "implementation_targets": [],
+                        "file_plan": [],
+                        "quiz_generation_requirements": {
+                            "quiz_type_count": 0,
+                            "items_per_type": 0,
+                            "total_items": 0,
+                            "required_fields": [],
+                        },
+                        "app_constraints": [],
+                        "test_strategy": [],
+                    }
+                )
             return response_model.model_validate(
                 {
                     "agent": {
@@ -139,6 +187,40 @@ class FakeLLMClient:
             )
 
             if (
+                self.invalid_content_first_pass
+                and not _prompt_has_retry_instruction(prompt)
+                and interaction_mode in {"coaching", "general"}
+            ):
+                return response_model.model_validate(
+                    {
+                        "agent": {
+                            "english_name": "Content & Interaction Agent",
+                            "korean_name": "교육 콘텐츠·상호작용 생성 Agent",
+                        },
+                        "service_summary": f"{service_name}용 invalid interaction-unit 콘텐츠다.",
+                        "interaction_mode": interaction_mode,
+                        "interaction_mode_reason": interaction_mode_reason,
+                        "interaction_units": [
+                            {
+                                "unit_id": "broken_input",
+                                "interaction_type": "free_text_input",
+                                "title": "질문 입력",
+                                "learner_action": "학습자가 질문을 입력한다.",
+                                "system_response": "질문을 입력해 보세요.",
+                                "input_format": "free_text",
+                                "feedback_rule": "",
+                                "learning_dimension": "",
+                                "next_step": "END",
+                                "metadata": {},
+                            }
+                        ],
+                        "flow_notes": [],
+                        "evaluation_rules": {},
+                        "interaction_notes": [],
+                    }
+                )
+
+            if (
                 content_types == DEFAULT_CONTENT_TYPES
                 and learning_dimensions[:3] == ["구체성", "맥락성", "목적성"]
                 and total_count == 8
@@ -200,16 +282,19 @@ class FakeLLMClient:
                     {
                         "item_id": item_id,
                         "quiz_type": quiz_type,
-                        "difficulty": "intro" if quiz_type == "multiple_choice" else "main",
+                        "difficulty": _difficulty_for_type(quiz_type, index=index),
                         "learning_dimension": learning_dimension,
                         "title": title,
                         "topic_context": _build_topic_context_for_type(quiz_type),
+                        "situation": _build_situation_for_type(quiz_type),
                         "original_question": _build_original_question_for_type(quiz_type),
+                        "stage_level": _build_stage_level_for_type(quiz_type),
                         "question": question,
                         "choices": choices,
                         "correct_choice": correct,
                         "explanation": explanation,
                         "learning_point": learning_point,
+                        "ai_question": _build_ai_question_for_type(quiz_type),
                     }
                 )
                 answer_key[item_id] = correct
@@ -240,11 +325,10 @@ class FakeLLMClient:
                     "flow_notes": [
                         "interaction_units의 순서와 next_step에 따라 화면 흐름을 구성한다.",
                     ],
-                    "evaluation_rules": {
-                        "mode": "quiz",
-                        "score_policy": {"per_item": 1, "total_items": total_count},
-                        "feedback_type": "feedback",
-                    },
+                    "evaluation_rules": _build_evaluation_rules_for_content_types(
+                        content_types=content_types,
+                        total_count=total_count,
+                    ),
                 }
             )
 
@@ -261,16 +345,19 @@ class FakeLLMClient:
                 {
                     "item_id": item_id,
                     "quiz_type": quiz_type,
-                    "difficulty": "intro" if quiz_type == "multiple_choice" else "main",
+                    "difficulty": _difficulty_for_type(quiz_type),
                     "learning_dimension": learning_dimension,
                     "title": f"{quiz_type} 재생성 문항",
                     "topic_context": _build_topic_context_for_type(quiz_type),
+                    "situation": _build_situation_for_type(quiz_type),
                     "original_question": _build_original_question_for_type(quiz_type),
+                    "stage_level": _build_stage_level_for_type(quiz_type),
                     "question": _build_question_for_type(quiz_type),
                     "choices": _build_choices_for_type(quiz_type),
                     "correct_choice": _build_correct_choice_for_type(quiz_type),
                     "explanation": _build_explanation_for_dimension(learning_dimension),
                     "learning_point": _build_learning_point_for_dimension(learning_dimension),
+                    "ai_question": _build_ai_question_for_type(quiz_type),
                 }
             )
 
@@ -400,6 +487,39 @@ class FakeLLMClient:
                 }
             )
 
+        if response_name == OrchestrationJudgeOutput.__name__:
+            if self.judge_fail:
+                raise RuntimeError("fake orchestration judge failure")
+            if self.judge_invalid_output:
+                return response_model.model_validate(
+                    {
+                        "chosen_target_agent": "PROTOTYPE_BUILDER",
+                        "reason": "invalid target for fallback test",
+                        "retry_instruction": {
+                            "summary": "invalid",
+                            "must_fix": [],
+                            "evidence": [],
+                            "preserve_constraints": [],
+                        },
+                        "confidence_note": "invalid target",
+                    }
+                )
+            return response_model.model_validate(
+                {
+                    "chosen_target_agent": self.judge_target,
+                    "reason": "fake deterministic orchestration judge choice",
+                    "retry_instruction": {
+                        "summary": f"{self.judge_target}로 upstream contract를 보강한다.",
+                        "must_fix": [
+                            "interaction flow 또는 app constraints를 더 명확히 보강하라."
+                        ],
+                        "evidence": ["fake judge evidence"],
+                        "preserve_constraints": ["target_framework=streamlit"],
+                    },
+                    "confidence_note": "deterministic fake judge output",
+                }
+            )
+
         raise AssertionError(f"Unexpected response model requested by fake client: {response_name}")
 
     def _build_default_content_output(self, response_model):
@@ -525,7 +645,11 @@ class FakeLLMClient:
                 {
                     "item_id": item_id,
                     "quiz_type": quiz_type,
-                    "difficulty": "intro" if quiz_type in {"질문에서 빠진 요소 찾기", "더 좋은 질문 고르기"} else "main",
+                    "difficulty": (
+                        "intro"
+                        if quiz_type in {"질문에서 빠진 요소 찾기", "더 좋은 질문 고르기"}
+                        else "main"
+                    ),
                     "learning_dimension": (
                         "구체성"
                         if item_id in {"quiz-02"}
@@ -535,12 +659,15 @@ class FakeLLMClient:
                     ),
                     "title": title,
                     "topic_context": _build_topic_context_for_type(quiz_type),
+                    "situation": _build_situation_for_type(quiz_type),
                     "original_question": _build_original_question_for_type(quiz_type),
+                    "stage_level": _build_stage_level_for_type(quiz_type),
                     "question": question,
                     "choices": choices,
                     "correct_choice": correct,
                     "explanation": explanation,
                     "learning_point": learning_point,
+                    "ai_question": _build_ai_question_for_type(quiz_type),
                 }
             )
             answer_key[item_id] = correct
@@ -571,11 +698,10 @@ class FakeLLMClient:
                 "flow_notes": [
                     "interaction_units의 순서와 next_step에 따라 문제 풀이와 결과 화면이 이어진다.",
                 ],
-                "evaluation_rules": {
-                    "mode": "quiz",
-                    "score_policy": {"per_item": 1, "total_items": 8},
-                    "feedback_type": "feedback",
-                },
+                "evaluation_rules": _build_evaluation_rules_for_content_types(
+                    content_types=quiz_types,
+                    total_count=8,
+                ),
             }
         )
 
@@ -583,8 +709,12 @@ class FakeLLMClient:
 def _build_question_for_type(quiz_type: str) -> str:
     if quiz_type == "multiple_choice":
         return "다음 중 더 좋은 질문으로 볼 수 있는 선택지는 무엇일까?"
+    if quiz_type == "situation_card":
+        return "이 상황에서 AI에게 어떤 질문을 하면 가장 도움이 될까?"
     if quiz_type == "question_improvement":
         return "원본 질문을 더 구체적이고 도움받기 쉬운 질문으로 다시 써보세요."
+    if quiz_type == "battle":
+        return "AI보다 더 좋은 질문을 만들어 배틀에서 이겨 보세요."
     if quiz_type == "질문에서 빠진 요소 찾기":
         return "질문 '이거 왜 그래?'에서 가장 먼저 보완해야 할 빠진 요소는 무엇일까?"
     if quiz_type == "모호한 질문 고치기":
@@ -592,6 +722,12 @@ def _build_question_for_type(quiz_type: str) -> str:
     if quiz_type == "상황에 맞는 질문 만들기":
         return "다음 상황에서 가장 적절한 질문은 무엇일까? (과학 발표 준비)"
     return "다음 중 더 좋은 질문은 무엇일까?"
+
+
+def _prompt_has_retry_instruction(prompt: str) -> bool:
+    if "Retry context:" not in prompt:
+        return False
+    return "Retry context:\n없음" not in prompt and "Retry context:\r\n없음" not in prompt
 
 
 def _infer_fake_interaction_mode(content_types: list[str], prompt: str) -> str:
@@ -606,7 +742,9 @@ def _infer_fake_interaction_mode(content_types: list[str], prompt: str) -> str:
 def _looks_like_quiz_content_types(content_types: list[str]) -> bool:
     quiz_markers = {
         "multiple_choice",
+        "situation_card",
         "question_improvement",
+        "battle",
         "질문에서 빠진 요소 찾기",
         "더 좋은 질문 고르기",
         "모호한 질문 고치기",
@@ -620,14 +758,26 @@ def _build_quiz_interaction_units_from_items(items: list[dict[str, object]]) -> 
     for item in items:
         item_id = str(item["item_id"])
         quiz_type = str(item["quiz_type"])
-        action_type = "free_text_input" if quiz_type == "question_improvement" else "multiple_choice"
+        action_type = (
+            "multiple_choice" if quiz_type == "multiple_choice" else "free_text_input"
+        )
+        learner_action = item["question"]
+        system_response = item["topic_context"]
+        if quiz_type == "situation_card":
+            learner_action = item.get("question") or item.get("situation") or ""
+            system_response = item.get("situation") or item["topic_context"]
+        elif quiz_type == "question_improvement":
+            system_response = item.get("original_question") or item["topic_context"]
+        elif quiz_type == "battle":
+            learner_action = item.get("question") or "AI보다 더 좋은 질문을 만들어 보세요."
+            system_response = item.get("situation") or item["topic_context"]
         units.append(
             {
                 "unit_id": f"{item_id}_action",
                 "interaction_type": action_type,
                 "title": item["title"],
-                "learner_action": item["question"],
-                "system_response": item["topic_context"],
+                "learner_action": learner_action,
+                "system_response": system_response,
                 "input_format": "free_text" if action_type == "free_text_input" else "multiple_choice",
                 "feedback_rule": "응답 후 결과 피드백을 제공한다.",
                 "learning_dimension": item["learning_dimension"],
@@ -640,6 +790,9 @@ def _build_quiz_interaction_units_from_items(items: list[dict[str, object]]) -> 
                     "difficulty": item["difficulty"],
                     "topic_context": item["topic_context"],
                     "original_question": item["original_question"],
+                    "situation": item.get("situation", ""),
+                    "stage_level": item.get("stage_level", ""),
+                    "ai_question": item.get("ai_question", ""),
                 },
             }
         )
@@ -660,9 +813,34 @@ def _build_quiz_interaction_units_from_items(items: list[dict[str, object]]) -> 
                     "correct_choice": item["correct_choice"],
                     "explanation": item["explanation"],
                     "learning_point": item["learning_point"],
+                    "quiz_type": quiz_type,
+                    "situation": item.get("situation", ""),
+                    "stage_level": item.get("stage_level", ""),
+                    "ai_question": item.get("ai_question", ""),
                 },
             }
         )
+
+        if quiz_type == "battle":
+            units.append(
+                {
+                    "unit_id": f"{item_id}_battle_final",
+                    "interaction_type": "score_summary",
+                    "title": f"{item['title']} 배틀 결과",
+                    "learner_action": "",
+                    "system_response": "배틀 승패와 보너스 점수를 요약한다.",
+                    "input_format": "",
+                    "feedback_rule": "배틀 종료 후 최종 결과를 보여 준다.",
+                    "learning_dimension": item["learning_dimension"],
+                    "next_step": "",
+                    "metadata": {
+                        "source_item_id": item_id,
+                        "battle_rounds": 3,
+                        "battle_win_threshold": 2,
+                        "stage_level": item.get("stage_level", ""),
+                    },
+                }
+            )
 
     units.append(
         {
@@ -751,6 +929,8 @@ def _build_choices_for_type(quiz_type: str) -> list[str]:
             "과학 숙제인데 증발이 왜 빨라지는지 이유를 알려줘.",
             "과학은 어렵다.",
         ]
+    if quiz_type in {"situation_card", "battle"}:
+        return []
     if quiz_type == "question_improvement":
         return [
             "이거 알려 줘.",
@@ -781,8 +961,12 @@ def _build_choices_for_type(quiz_type: str) -> list[str]:
 def _build_correct_choice_for_type(quiz_type: str) -> str:
     if quiz_type == "multiple_choice":
         return "과학 숙제인데 증발이 왜 빨라지는지 이유를 알려줘."
+    if quiz_type == "situation_card":
+        return "국어 발표 준비 중인데 비유 표현이 왜 쓰였는지 예시와 함께 설명해줘."
     if quiz_type == "question_improvement":
         return "국어 숙제인데 '내 마음은 호수요'가 왜 비유인지 예시와 함께 설명해 줘."
+    if quiz_type == "battle":
+        return "수행평가 준비 중인데 비유 표현의 효과를 예시와 함께 비교 설명해줘."
     if quiz_type == "질문에서 빠진 요소 찾기":
         return "맥락 정보"
     if quiz_type == "모호한 질문 고치기":
@@ -795,8 +979,12 @@ def _build_correct_choice_for_type(quiz_type: str) -> str:
 def _build_topic_context_for_type(quiz_type: str) -> str:
     if quiz_type == "multiple_choice":
         return "국어 비유 표현 학습"
+    if quiz_type == "situation_card":
+        return "국어 수행평가 상황 카드"
     if quiz_type == "question_improvement":
         return "수학 일차방정식"
+    if quiz_type == "battle":
+        return "국어 질문 배틀"
     if quiz_type == "질문에서 빠진 요소 찾기":
         return "과학 발표 준비"
     if quiz_type == "모호한 질문 고치기":
@@ -809,8 +997,12 @@ def _build_topic_context_for_type(quiz_type: str) -> str:
 def _build_original_question_for_type(quiz_type: str) -> str:
     if quiz_type == "multiple_choice":
         return "비유가 뭔지 모르겠어"
+    if quiz_type == "situation_card":
+        return "이 상황에서 뭐라고 물어봐야 하지?"
     if quiz_type == "question_improvement":
         return "이거 어떻게 풀어"
+    if quiz_type == "battle":
+        return "좋은 질문을 만들고 싶어"
     if quiz_type == "질문에서 빠진 요소 찾기":
         return "이거 왜 그래?"
     if quiz_type == "모호한 질문 고치기":
@@ -832,10 +1024,55 @@ def _build_quiz_type_sequence(
         and items_per_type == 2
     ):
         return ["multiple_choice", "question_improvement", "question_improvement"]
+    if (
+        content_types == ["multiple_choice", "situation_card", "question_improvement", "battle"]
+        and total_count == 5
+    ):
+        return [
+            "multiple_choice",
+            "situation_card",
+            "question_improvement",
+            "situation_card",
+            "battle",
+        ]
 
     if not content_types:
         return ["generic"] * total_count
     return [content_types[index % len(content_types)] for index in range(total_count)]
+
+
+def _build_situation_for_type(quiz_type: str) -> str:
+    if quiz_type == "situation_card":
+        return "국어 수행평가 준비 중이고, 비유 표현을 이해해 발표해야 한다."
+    if quiz_type == "battle":
+        return "AI보다 더 좋은 질문을 만들어 발표 준비 상황을 해결해야 한다."
+    return ""
+
+
+def _build_stage_level_for_type(quiz_type: str) -> str:
+    if quiz_type == "battle":
+        return "silver"
+    return ""
+
+
+def _build_ai_question_for_type(quiz_type: str) -> str:
+    if quiz_type == "battle":
+        return "국어 수행평가 준비 중인데 비유 표현의 효과를 예시와 함께 설명해줘."
+    return ""
+
+
+def _difficulty_for_type(quiz_type: str, *, index: int | None = None) -> str:
+    if quiz_type == "multiple_choice":
+        return "intro"
+    if quiz_type == "question_improvement":
+        return "main"
+    if quiz_type == "situation_card":
+        if index is not None and index >= 3:
+            return "main_advanced"
+        return "main"
+    if quiz_type == "battle":
+        return "main_advanced"
+    return "main"
 
 
 def _build_explanation_for_dimension(dimension: str) -> str:
@@ -856,6 +1093,38 @@ def _build_learning_point_for_dimension(dimension: str) -> str:
     if dimension == "종합성":
         return "좋은 질문은 구체성, 맥락성, 목적성을 함께 고려합니다."
     return "좋은 질문은 대상과 조건을 구체적으로 말합니다."
+
+
+def _build_evaluation_rules_for_content_types(
+    *,
+    content_types: list[str],
+    total_count: int,
+) -> dict[str, object]:
+    rules: dict[str, object] = {
+        "mode": "quiz",
+        "score_policy": {"per_item": 1, "total_items": total_count},
+        "feedback_type": "feedback",
+    }
+    if "battle" in content_types:
+        rules.update(
+            {
+                "combo_rules": {"combo_2_bonus": 10, "combo_3_or_more_bonus": 15},
+                "battle_rules": {
+                    "max_rounds": 3,
+                    "win_threshold": 2,
+                    "tie_winner": "ai",
+                    "win_score": 20,
+                    "loss_or_tie_score": 5,
+                },
+                "grade_rules": {
+                    "bronze": {"min_score": 0, "max_score": 99},
+                    "silver": {"min_score": 100, "max_score": 299},
+                    "gold": {"min_score": 300, "max_score": 599},
+                    "platinum": {"min_score": 600, "max_score": None},
+                },
+            }
+        )
+    return rules
 
 
 def _extract_list_from_prompt(prompt: str, field_name: str) -> list[str]:

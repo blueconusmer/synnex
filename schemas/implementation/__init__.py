@@ -20,6 +20,12 @@ from schemas.implementation.implementation_spec import (
     ImplementationSpec,
     parse_markdown_spec,
 )
+from schemas.implementation.orchestration_decision import (
+    OrchestrationDecision,
+    OrchestrationJudgeOutput,
+    RetryHistoryEntry,
+    RetryInstruction,
+)
 from schemas.implementation.prototype_builder import (
     AppSourceGenerationOutput,
     PrototypeBuilderInput,
@@ -50,6 +56,8 @@ __all__ = [
     "InteractionUnit",
     "InteractionValidationSummary",
     "LocalCheckResult",
+    "OrchestrationDecision",
+    "OrchestrationJudgeOutput",
     "PatchedFile",
     "PrototypeBuilderInput",
     "PrototypeBuilderOutput",
@@ -59,6 +67,8 @@ __all__ = [
     "QuizItem",
     "RequirementMappingInput",
     "RequirementMappingOutput",
+    "RetryHistoryEntry",
+    "RetryInstruction",
     "RunTestAndFixInput",
     "RunTestAndFixOutput",
     "SchemaModel",

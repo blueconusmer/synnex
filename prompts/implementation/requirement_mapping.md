@@ -7,7 +7,11 @@
 입력:
 {spec_intake_output}
 
+Retry context:
+{retry_instruction}
+
 반드시 아래를 지켜라:
 - 특정 서비스 이름이나 고정된 문제 수를 하드코딩하지 않는다.
 - 입력 명세서에 포함된 서비스 목적, 핵심 기능, 기대 산출물 기준으로 계약을 정리한다.
 - outputs, app, QA 경로를 모두 고려한다.
+- retry context가 있다면 must_fix를 우선 반영하되, 기존 콘텐츠 범위와 target framework 제약을 유지한다.
