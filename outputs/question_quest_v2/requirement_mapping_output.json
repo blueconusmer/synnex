@@ -1,0 +1,81 @@
+{
+  "agent": {
+    "english_name": "Requirement Mapping Agent",
+    "korean_name": "구현 요구사항 정리 Agent"
+  },
+  "implementation_targets": [
+    "Streamlit 기반 인터랙티브 UI 구현 (주제/상황/답변형태 입력 컴포넌트 포함)",
+    "9개 API 엔드포인트 구현 (/api/session/start, /api/quest/submit 등)",
+    "5단계 퀘스트 난이도 조정 알고리즘 구현 (Q1-Q5)",
+    "40개 퀘스트 풀 관리 시스템 구현 (세션별 무작위 조합 생성 로직)",
+    "루브릭 기반 질문 평가 알고리즘 구현 (구체성·맥락성·목적성 병렬 평가)",
+    "AI 배틀 상대 난이도 동적 조정 시스템 구현",
+    "누적 점수 시스템 및 피드백 흐름 구현",
+    "세션별 퀘스트 조합 생성 로직 구현 (이미 푼 퀘스트 제외)"
+  ],
+  "file_plan": [
+    {
+      "path": "app.py",
+      "purpose": "Streamlit 기반 메인 애플리케이션 구현 파일",
+      "producing_agent": "UI Implementation Agent"
+    },
+    {
+      "path": "api/endpoints.py",
+      "purpose": "9개 API 엔드포인트 구현 파일",
+      "producing_agent": "API Implementation Agent"
+    },
+    {
+      "path": "quests/quest_pool.json",
+      "purpose": "40개 퀘스트 풀 데이터 저장 파일",
+      "producing_agent": "Content Management Agent"
+    },
+    {
+      "path": "evaluation/rubric.py",
+      "purpose": "루브릭 기반 질문 평가 알고리즘 구현 파일",
+      "producing_agent": "Evaluation Algorithm Agent"
+    },
+    {
+      "path": "battle/battle_system.py",
+      "purpose": "AI 배틀 상대 난이도 조정 시스템 구현 파일",
+      "producing_agent": "Game Logic Agent"
+    },
+    {
+      "path": "session/session_manager.py",
+      "purpose": "세션별 퀘스트 조합 생성 및 관리 시스템 구현 파일",
+      "producing_agent": "Session Management Agent"
+    }
+  ],
+  "quiz_generation_requirements": {
+    "quiz_type_count": 4,
+    "items_per_type": 10,
+    "total_items": 40,
+    "required_fields": [
+      "주제",
+      "상황",
+      "원하는 답변 형태",
+      "난이도",
+      "AI 생성 질문 샘플",
+      "평가 기준"
+    ]
+  },
+  "app_constraints": [
+    "직접 질문 작성 강제화 (정답 선택 방식 제외)",
+    "초기 화면: 로그인/세션 시작 버튼 (state: idle)",
+    "세션 시작 시: 40개 퀘스트 풀에서 무작위 5개 퀘스트 선택 (state: quest_selection)",
+    "퀘스트 진행 화면: 주제/상황/답변형태 입력 필드 + 제출 버튼 (state: quest_in_progress)",
+    "제출 후: 루브릭 기반 평가 결과 표시 (state: evaluation)",
+    "배틀 화면: AI 생성 질문과 비교 평가 (state: battle)",
+    "결과 화면: 누적 점수 및 피드백 표시 (state: result)",
+    "API 응답: JSON 형식으로 세션 상태, 퀘스트 데이터, 평가 결과 포함",
+    "Streamlit UI: 상태별 화면 전환 및 실시간 피드백 제공"
+  ],
+  "test_strategy": [
+    "API 엔드포인트 기능 테스트 (CRUD 연산 검증)",
+    "퀘스트 풀 무작위 조합 생성 정확성 테스트 (중복 제외 확인)",
+    "루브릭 평가 알고리즘 테스트 (구체성·맥락성·목적성 점수 검증)",
+    "난이도 조정 시스템 테스트 (Q1-Q5 단계별 배틀 상대 난이도 검증)",
+    "누적 점수 시스템 테스트 (세션별 점수 집계 정확성 검증)",
+    "UI 상호작용 테스트 (상태별 화면 전환 및 입력 유효성 검증)",
+    "피드백 흐름 테스트 (평가 결과 → 피드백 텍스트 매핑 정확성 검증)"
+  ]
+}

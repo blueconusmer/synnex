@@ -1,0 +1,297 @@
+{
+  "status": "AUTO_FIXED",
+  "planning_package": {
+    "service_meta": {
+      "service_name": "260429_퀘스트",
+      "target_framework": "streamlit",
+      "target_user": "",
+      "purpose": "표면적으로는 \"AI 사용법을 모른다\"로 보이지만, 본질은 두 가지다. 첫째, 자기가 무엇을 묻고 싶은지 언어로 구조화하는 능력이 부족하다. 둘째, 반복 훈련이 필요함에도 단순 반복은 지루해서 지속하지 못한다. 따라서 본 서비스는 AI 사용법 강의가 아니라, **게이미피케이션을 통해 반복 훈련을 지속하게 만드는 구조** 위에서 질문력을 키우는 경험을 제공해야 한다. 학생이 AI에게 질문할 때, **주제** / **상황** / **원하는 답의 형태**를 포함한 질문을 스스로 작성할 수 있다. 나아가 AI가 만든 질문보다 더 좋은 질문을 만들 수 있다. **주체**: 학생 **조건**: AI에게 질문하는 상황에서 **관찰 가능한 행동 1**: 주제·상황·원하는 답의 형태 세 요소를 포함한 질문을 스스로 작성 **관찰 가능한 행동 2**: AI가 만든 질문과 비교했을 때 루브릭 기준으로 동등하거나 더 높은 평가를 받는 질문을 작성",
+      "version": "v2"
+    },
+    "content_spec": {
+      "content_types": [
+        "multiple_choice",
+        "situation_card",
+        "question_improvement",
+        "battle"
+      ],
+      "total_count": 5,
+      "items_per_type": 0,
+      "difficulty_levels": [
+        "intro",
+        "main",
+        "main_advanced"
+      ]
+    },
+    "evaluation_spec": {
+      "rubric_criteria": [
+        "구체성",
+        "맥락성",
+        "목적성"
+      ],
+      "grade_levels": [
+        "브론즈",
+        "실버",
+        "골드",
+        "플래티넘"
+      ],
+      "score_rules": {
+        "rubric_grades": [
+          "우수",
+          "양호",
+          "미흡"
+        ],
+        "service_grades": {
+          "브론즈": [
+            0,
+            99
+          ],
+          "실버": [
+            100,
+            299
+          ],
+          "골드": [
+            300,
+            599
+          ],
+          "플래티넘": [
+            600,
+            null
+          ]
+        },
+        "answer_score_rules": {}
+      }
+    },
+    "interaction_spec": {
+      "session_structure": [
+        "session_start",
+        "quest_active",
+        "quest_feedback",
+        "battle_round_active",
+        "battle_round_feedback",
+        "battle_completed",
+        "session_completed",
+        "error"
+      ],
+      "state_transitions": [
+        "session_start->quest_active",
+        "quest_active->quest_feedback",
+        "quest_feedback->battle_round_active",
+        "battle_round_active->battle_round_feedback",
+        "battle_round_feedback->battle_completed",
+        "battle_completed->session_completed",
+        "session_completed->error"
+      ],
+      "scoring_rules": {
+        "answer_score_rules": {},
+        "rubric_overall_rule": "종합 판정. 3개 모두 excellent→excellent, 1개 이상 needs_work→needs_work, 그 외→good",
+        "session_completion_rule": "5개 퀘스트와 배틀 단계 완료 후 세션 결과 화면 표시",
+        "grade_up_message_rule": "",
+        "llm_timeout_message": ""
+      }
+    },
+    "interface_spec": {
+      "screens": [
+        "S0",
+        "S1",
+        "S2",
+        "S3",
+        "S4",
+        "S5",
+        "S6",
+        "S7",
+        "S8"
+      ],
+      "api_endpoints": [
+        "/api/session/start",
+        "/api/quest/submit",
+        "/api/battle/submit",
+        "/api/session/result"
+      ]
+    },
+    "llm_spec": {
+      "generation_prompt": "역할: 너는 중학생의 질문력을 키우는 학습 콘텐츠 설계자다.\n목표: 학생이 \"어떤 질문이 더 좋은 질문인가\"를 판별하는 감각을 기르도록\n       객관식 퀘스트를 만든다.\n\n생성 규칙:\n1. 학습 맥락(topic_context)에 어울리는 모호한 원본 질문 상황 1개를 만든다.\n2. 4개 선택지를 만든다. 각 선택지는 그 상황에서 AI에게 할 수 있는 질문이다.\n3. 정답 1개는 구체성·맥락성·목적성 3가지를 모두 포함해야 한다.\n4. 오답 3개는 각각 위 3가지 중 하나 이상이 빠진 질문이어야 한다.\n5. 정답에 대한 해설을 2문장 이내로 작성한다.\n\n표현 제약:\n- 모든 표현은 중학생이 실제로 쓰는 자연스러운 말투.\n- 선택지 길이는 비슷하게 맞춘다 (정답만 길어 보이지 않게).\n\n출력 형식 (JSON only):\n{\n  \"topic_context\": \"string\",\n  \"options\": [\"string\", \"string\", \"string\", \"string\"],\n  \"correct_option_index\": 0~3,\n  \"explanation\": \"string\"\n}\n\n역할: 너는 중학생의 질문력을 키우는 학습 콘텐츠 설계자다.\n목표: 학생이 주어진 상황에서 AI에게 좋은 질문을 처음부터 만드는 훈련을 하도록\n       상황 카드를 만든다.\n\n생성 규칙:\n1. 학습 맥락(topic_context)에 어울리는 상황 카드를 1개 만든다.\n2. 상황 카드는 \"너는 지금 [상황]이고, [문제]가 생겼다\" 형식으로 작성한다.\n3. difficulty가 \"main_advanced\"이면 상황에 조건을 1개 더 추가한다.\n   예) \"시간이 30분밖에 없다\" / \"선생님이 설명 없이 예시만 원한다\"\n4. 상황만 주고 질문 예시는 절대 포함하지 않는다.\n\n표현 제약:\n- 중학생이 실제로 겪을 법한 현실적인 상황.\n- 상황 카드 길이: 2~3문장.\n\n출력 형식 (JSON only):\n{\n  \"topic_context\": \"string\",\n  \"difficulty\": \"main\" | \"main_advanced\",\n  \"situation\": \"string\"\n}\n\n역할: 너는 중학생의 질문력을 키우는 학습 콘텐츠 설계자다.\n목표: 학생이 모호한 질문을 더 좋게 다듬는 훈련을 하도록\n       개선이 필요한 원본 질문을 만든다.\n\n생성 규칙:\n1. 학습 맥락(topic_context)에 어울리는 모호한 원본 질문 1개를 만든다.\n2. 원본 질문은 구체성·맥락성·목적성 중 적어도 2가지가 빠져 있어야 한다.\n3. 학생이 개선할 수 있을 만큼의 단서는 남겨둔다 (완전히 무의미하면 안 됨).\n4. 상황 설명이나 힌트는 포함하지 않는다. 원본 질문만 출력한다.\n\n표현 제약:\n- 중학생이 실제로 던질 법한 자연스러운 말투.\n- 10~20자 내외.\n\n출력 형식 (JSON only):\n{\n  \"topic_context\": \"string\",\n  \"original_question\": \"string\"\n}\n\n역할: 너는 중학생의 질문력을 키우는 학습 콘텐츠 설계자다.\n목표: 배틀 퀘스트에서 학생과 경쟁할 AI 질문을 만든다.\n      AI 질문은 stage_level에 따라 수준이 다르다.\n\nstage_level별 AI 질문 수준:\n- bronze: 구체성은 있으나 맥락성 또는 목적성 중 하나가 약한 수준 (루브릭 합산 3~4점 수준)\n- silver: 3기준 모두 양호 이상이나 우수는 1개 이하인 수준 (루브릭 합산 4~5점 수준)\n- gold: 3기준 모두 우수에 가까운 수준 (루브릭 합산 5~6점 수준)\n- platinum: 3기준 모두 완벽한 수준 (루브릭 합산 6점 수준)\n\n생성 규칙:\n1. 주어진 situation(상황 카드)과 topic_context를 기반으로 AI 질문을 만든다.\n2. stage_level에 맞는 수준의 질문을 만든다.\n3. 라운드마다 다른 상황 카드를 사용하므로, 3개 라운드용 AI 질문 3개를 한 번에 생성한다.\n\n출력 형식 (JSON only):\n{\n  \"round_1\": { \"situation\": \"string\", \"ai_question\": \"string\" },\n  \"round_2\": { \"situation\": \"string\", \"ai_question\": \"string\" },\n  \"round_3\": { \"situation\": \"string\", \"ai_question\": \"string\" }\n}",
+      "evaluation_prompt": "#### System Prompt ``` 역할: 너는 중학생의 질문력을 평가하는 교육 평가 전문가다. 목표: 학생이 제출한 질문을 3가지 기준으로 동시에 평가(병렬 평가)하고, 성장을 격려하는 짧은 피드백을 작성한다. 평가 기준 (3가지 동시 판정 — 병렬 평가): 구체성 (specificity): 무엇에 대한 질문인지 명확한가? excellent: 주제·대상·개념이 명확하고 범위가 좁혀져 있음 good: 주제는 있으나 범위가 모호함 needs_work: 주제·대상이 전혀 없음 맥락성 (context): 왜 지금 필요한 질문인지 드러나는가? excellent: 숙제·시험·과제 등 상황이 명확히 명시됨 good: 상황이 암시되어 있으나 불분명함 needs_work: 상황 단서가 전혀 없음 목적성 (purpose): 어떤 도움을 원하는지 명확한가? excellent: 설명·예시·풀이 등 원하는 형태가 명확함 good: 원하는 것이 있으나 형태가 모호함 needs_work: 무엇을 원하는지 알 수 없음 종합 판정 (overall) 도출: 3개 모두 excellent → \"excellent\" 1개 이상 needs_work → \"needs_work\" 그 외 → \"good\" rubric_score 계산: excellent=2, good=1, needs_work=0 specificity + context + purpose 합산 (0~6) 피드백 작성 규칙: 한두 문장 이내, 150자 이하. 평가적 표현 금지. 성장적 표현 사용. overall별 톤: excellent: \"아주 명확해졌어요!\" + 어떤 점이 좋아졌는지 good: \"좋아졌어요!\" + 어떤 부분이 명확해졌는지 needs_work: \"한 부분이 더 명확해지면 좋겠어요\" + 어떤 영역이 부족한지 출력 형식 (JSON only): { \"rubric_result\": { \"specificity\": \"excellent\" | \"good\" | \"needs_work\", \"context\": \"excellent\" | \"good\" | \"needs_work\", \"purpose\": \"excellent\" | \"good\" | \"needs_work\", \"overall\": \"excellent\" | \"good\" | \"needs_work\", \"rubric_score\": 0~6 }, \"feedback\": \"string\" } ``` #### Few-shot 예시 ```json Input: { \"situation\": \"너는 국어 수행평가 준비 중이고 비유 표현이 뭔지 이해가 안 된다.\", \"user_question\": \"국어 수행평가 준비 중인데 '내 마음은 호수요'가 왜 비유인지 예시와 함께 설명해줘\" } Output: { \"rubric_result\": { \"specificity\": \"excellent\", \"context\": \"excellent\", \"purpose\": \"excellent\", \"overall\": \"excellent\", \"rubric_score\": 6 }, \"feedback\": \"아주 명확해졌어요! 무엇을, 왜, 어떻게 모두 잘 담겨 있어요.\" } ``` ```json Input: { \"situation\": \"너는 수학 시험 전날이고 일차방정식 풀이가 헷갈린다.\", \"user_question\": \"일차방정식 알려줘\" } Output: { \"rubric_result\": { \"specificity\": \"good\", \"context\": \"needs_work\", \"purpose\": \"needs_work\", \"overall\": \"needs_work\", \"rubric_score\": 1 }, \"feedback\": \"한 부분이 더 명확해지면 좋겠어요. 왜 지금 필요한지, 어떻게 알려줬으면 하는지 넣어보세요.\" } ```"
+    },
+    "test_spec": {
+      "test_file_path": "",
+      "acceptance_criteria": []
+    },
+    "constraints": [
+      "본 서비스는 다음 다섯 가지 원칙으로 작동한다.",
+      "**질문을 직접 만들게 한다.** 정답을 고르는 것(Q1)은 입문 단계에만 사용하고, 본 단계는 항상 직접 작성하게 한다.",
+      "**쉬운 것에서 어려운 것으로 단계를 높인다.** 한 세션 안에서 Q1 → Q2 → Q3 → Q4 → Q5 순서로 난이도가 올라간다. 스테이지(등급)가 올라갈수록 AI 배틀 상대의 질문 수준도 올라간다.",
+      "**반복해도 새롭게 느끼게 한다.** 퀘스트 풀(유형별 10개, 총 40개)에서 매 세션마다 다른 조합을 제공한다. 이미 푼 퀘스트는 우선 제외한다.",
+      "**평가보다 성장과 경쟁을 강조한다.** 점수는 떨어지지 않고 누적만 된다. 미흡도 최소 점수를 받는다. 배틀에서 지더라도 다음 라운드에서 만회할 수 있다.",
+      "**피드백 방식은 병렬 평가다.** Q2·Q3·Q4는 구체성·맥락성·목적성 세 기준을 동시에 평가하고 종합 판정을 내린다. 순차 평가(한 번에 하나씩 보완)는 채택하지 않는다. 세션 흐름을 끊지 않기 위해서다.",
+      "본 헌법은 0차 산출물로서 모든 후속 문서보다 우선한다.",
+      "하위 산출물이 본 헌법과 충돌할 경우 헌법 기준을 우선 적용한다.",
+      "서비스 변경 시에도 본 헌법(특히 ④~⑦)과의 정합성을 우선 검토한다."
+    ]
+  },
+  "implementation_spec": {
+    "source_path": "inputs/260429_퀘스트_v2",
+    "service_name": "260429_퀘스트",
+    "target_framework": "streamlit",
+    "team_identity": "교육 서비스 구현 전문 AI Agent 팀",
+    "service_purpose": "표면적으로는 \"AI 사용법을 모른다\"로 보이지만, 본질은 두 가지다. 첫째, 자기가 무엇을 묻고 싶은지 언어로 구조화하는 능력이 부족하다. 둘째, 반복 훈련이 필요함에도 단순 반복은 지루해서 지속하지 못한다. 따라서 본 서비스는 AI 사용법 강의가 아니라, **게이미피케이션을 통해 반복 훈련을 지속하게 만드는 구조** 위에서 질문력을 키우는 경험을 제공해야 한다. 학생이 AI에게 질문할 때, **주제** / **상황** / **원하는 답의 형태**를 포함한 질문을 스스로 작성할 수 있다. 나아가 AI가 만든 질문보다 더 좋은 질문을 만들 수 있다. **주체**: 학생 **조건**: AI에게 질문하는 상황에서 **관찰 가능한 행동 1**: 주제·상황·원하는 답의 형태 세 요소를 포함한 질문을 스스로 작성 **관찰 가능한 행동 2**: AI가 만든 질문과 비교했을 때 루브릭 기준으로 동등하거나 더 높은 평가를 받는 질문을 작성",
+    "target_users": [],
+    "learning_goals": [
+      "구체성",
+      "맥락성",
+      "목적성"
+    ],
+    "core_features": [
+      "multiple_choice",
+      "situation_card",
+      "question_improvement",
+      "battle"
+    ],
+    "total_count": 5,
+    "items_per_type": 0,
+    "content_distribution": {
+      "multiple_choice": 1,
+      "situation_card": 2,
+      "question_improvement": 1,
+      "battle": 1
+    },
+    "content_interaction_direction": [
+      "session_start",
+      "quest_active",
+      "quest_feedback",
+      "battle_round_active",
+      "battle_round_feedback",
+      "battle_completed",
+      "session_completed",
+      "error",
+      "session_start->quest_active",
+      "quest_active->quest_feedback",
+      "quest_feedback->battle_round_active",
+      "battle_round_active->battle_round_feedback",
+      "battle_round_feedback->battle_completed",
+      "battle_completed->session_completed",
+      "session_completed->error"
+    ],
+    "excluded_scope": [],
+    "expected_outputs": [
+      "S0",
+      "S1",
+      "S2",
+      "S3",
+      "S4",
+      "S5",
+      "S6",
+      "S7",
+      "S8",
+      "/api/session/start",
+      "/api/quest/submit",
+      "/api/battle/submit",
+      "/api/session/result"
+    ],
+    "acceptance_criteria": [],
+    "constraints": [
+      "본 서비스는 다음 다섯 가지 원칙으로 작동한다.",
+      "**질문을 직접 만들게 한다.** 정답을 고르는 것(Q1)은 입문 단계에만 사용하고, 본 단계는 항상 직접 작성하게 한다.",
+      "**쉬운 것에서 어려운 것으로 단계를 높인다.** 한 세션 안에서 Q1 → Q2 → Q3 → Q4 → Q5 순서로 난이도가 올라간다. 스테이지(등급)가 올라갈수록 AI 배틀 상대의 질문 수준도 올라간다.",
+      "**반복해도 새롭게 느끼게 한다.** 퀘스트 풀(유형별 10개, 총 40개)에서 매 세션마다 다른 조합을 제공한다. 이미 푼 퀘스트는 우선 제외한다.",
+      "**평가보다 성장과 경쟁을 강조한다.** 점수는 떨어지지 않고 누적만 된다. 미흡도 최소 점수를 받는다. 배틀에서 지더라도 다음 라운드에서 만회할 수 있다.",
+      "**피드백 방식은 병렬 평가다.** Q2·Q3·Q4는 구체성·맥락성·목적성 세 기준을 동시에 평가하고 종합 판정을 내린다. 순차 평가(한 번에 하나씩 보완)는 채택하지 않는다. 세션 흐름을 끊지 않기 위해서다.",
+      "본 헌법은 0차 산출물로서 모든 후속 문서보다 우선한다.",
+      "하위 산출물이 본 헌법과 충돌할 경우 헌법 기준을 우선 적용한다.",
+      "서비스 변경 시에도 본 헌법(특히 ④~⑦)과의 정합성을 우선 검토한다."
+    ]
+  },
+  "source_paths": [
+    "inputs/260429_퀘스트_v2/constitution.md",
+    "inputs/260429_퀘스트_v2/data_schema.json",
+    "inputs/260429_퀘스트_v2/state_machine.md",
+    "inputs/260429_퀘스트_v2/prompt_spec.md",
+    "inputs/260429_퀘스트_v2/interface_spec.md"
+  ],
+  "runtime_config": {
+    "service_slug": "260429_퀘스트",
+    "target_framework": "streamlit",
+    "content_output_filename": "260429_퀘스트_contents.json",
+    "normalized_source_path": "inputs/260429_퀘스트_v2",
+    "content_distribution": {
+      "item_count_by_type": {
+        "multiple_choice": 1,
+        "situation_card": 2,
+        "question_improvement": 1,
+        "battle": 1
+      },
+      "total_count": 5,
+      "distribution_source": "data_schema.session.quest_sequence"
+    }
+  },
+  "auto_fixes": [
+    {
+      "field_path": "runtime_config.service_slug",
+      "before": null,
+      "after": "260429_퀘스트",
+      "reason": "service_slug 실행 값을 생성했다."
+    },
+    {
+      "field_path": "runtime_config.target_framework",
+      "before": null,
+      "after": "streamlit",
+      "reason": "ImplementationSpec 기준 target_framework 실행 값을 기록했다."
+    },
+    {
+      "field_path": "runtime_config.content_output_filename",
+      "before": null,
+      "after": "260429_퀘스트_contents.json",
+      "reason": "service_slug 기반 콘텐츠 출력 파일명을 생성했다."
+    },
+    {
+      "field_path": "runtime_config.normalized_source_path",
+      "before": "inputs/260429_퀘스트_v2",
+      "after": "inputs/260429_퀘스트_v2",
+      "reason": "입력 package 경로를 절대 경로로 정규화했다."
+    },
+    {
+      "field_path": "runtime_config.content_distribution",
+      "before": null,
+      "after": {
+        "item_count_by_type": {
+          "multiple_choice": 1,
+          "situation_card": 2,
+          "question_improvement": 1,
+          "battle": 1
+        },
+        "total_count": 5,
+        "distribution_source": "data_schema.session.quest_sequence"
+      },
+      "reason": "생성 단위 수를 content type별 분포로 추론했다."
+    },
+    {
+      "field_path": "service_meta.target_user",
+      "before": "",
+      "after": "",
+      "reason": "optional field 누락을 기본값으로 처리했다: service_meta.target_user"
+    },
+    {
+      "field_path": "test_spec.acceptance_criteria",
+      "before": [],
+      "after": [],
+      "reason": "optional field 누락을 기본값으로 처리했다: test_spec.acceptance_criteria"
+    }
+  ],
+  "planning_review_items": [],
+  "issues": [],
+  "quality_judgement": {
+    "auto_fixable_functional_gaps": [
+      "service_slug 실행 값을 생성했다.",
+      "ImplementationSpec 기준 target_framework 실행 값을 기록했다.",
+      "service_slug 기반 콘텐츠 출력 파일명을 생성했다.",
+      "입력 package 경로를 절대 경로로 정규화했다.",
+      "생성 단위 수를 content type별 분포로 추론했다.",
+      "optional field 누락을 기본값으로 처리했다: service_meta.target_user",
+      "optional field 누락을 기본값으로 처리했다: test_spec.acceptance_criteria"
+    ],
+    "planning_review_required": [],
+    "blocking_conflicts": [],
+    "mvp_implementation_sufficient": true,
+    "summary": "7개 기능적 누락을 코드 기반으로 보완했습니다."
+  }
+}

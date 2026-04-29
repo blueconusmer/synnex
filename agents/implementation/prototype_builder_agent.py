@@ -104,7 +104,9 @@ def run_prototype_builder_agent(
         runtime_notes.append("LLM app.py 생성 호출이 실패해 fallback template을 사용했다.")
 
     if _is_planning_package_dir(Path(spec.source_path)):
-        runtime_notes.append("생성된 app.py는 Quest 세션 기반 화면(S0~S5)을 반영해야 한다.")
+        runtime_notes.append(
+            "생성된 app.py는 interface_spec에 정의된 Quest 세션 기반 화면 흐름을 반영해야 한다."
+        )
         integration_notes.append(
             "score_rules, grade_levels, grade_thresholds는 app.py 생성 시 상수로 삽입된다."
         )

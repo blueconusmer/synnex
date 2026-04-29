@@ -1,0 +1,46 @@
+[
+  {
+    "cycle_index": 1,
+    "issue_type": "APP_GENERATION_FEEDBACK",
+    "target_agent": "REQUIREMENT_MAPPING",
+    "llm_judge_used": false,
+    "instruction_summary": "REQUIREMENT_MAPPING 재실행 전, upstream contract를 더 명확히 보강해야 한다.",
+    "result_status": "RETRY_RECOMMENDED",
+    "notes": [
+      "implementation_targets를 실제 구현 작업 단위로 명확히 쓰라.",
+      "app_constraints에 required screen/state/result/feedback 흐름 단서를 더 명확히 적어라.",
+      "file_plan과 test_strategy가 downstream execution path를 충분히 설명하게 하라.",
+      "app_constraints에 state marker와 required result screen 조건을 명시하라.",
+      "Prototype Builder가 fallback template을 사용한 주요 원인은 app.py에 state-machine marker(SCREEN_IMPROVEMENT_RESULT)가 누락되었기 때문입니다. 이는 Content & Interaction Agent가 생성한 퀘스트 풀의 flow/state 마커가 불완전했음을 시사합니다. 특히 Q4와 Q5에서 재생성이 발생했으며, 이는 퀘스트 유형 및 학습 차원 불일치로 인한 구조적 문제를 반영합니다. 따라서 Content & Interaction Agent가 퀘스트 풀의 flow/state 마커를 명확히 정의하도록 재시도하는 것이 가장 타당합니다."
+    ]
+  },
+  {
+    "cycle_index": 2,
+    "issue_type": "APP_GENERATION_FEEDBACK",
+    "target_agent": "CONTENT_INTERACTION",
+    "llm_judge_used": true,
+    "instruction_summary": "퀘스트 풀의 flow/state 마커 및 학습 차원 일관성 강화",
+    "result_status": "RETRY_RECOMMENDED",
+    "notes": [
+      "Q4의 학습 차원 불일치 문제 해결 (종합 평가 → 구체성)",
+      "Q5의 퀘스트 유형 불일치 문제 해결 (multiple_choice → situation_card)",
+      "SCREEN_IMPROVEMENT_RESULT 상태 마커가 app.py에 포함되도록 퀘스트 풀 구조 개선",
+      "재생성된 Q4/Q5의 flow/state 마커 명시적 정의",
+      "Prototype Builder가 fallback template을 사용한 주요 원인은 app.py에 state-machine marker(SCREEN_IMPROVEMENT_RESULT)가 누락되었기 때문입니다. 이는 Content & Interaction Agent가 생성한 interaction flow/state markers가 Prototype Builder의 요구사항과 완전히 정렬되지 않았음을 나타냅니다. 따라서 Content & Interaction Agent로 되돌려 flow/state markers를 명확히 해야 합니다."
+    ]
+  },
+  {
+    "cycle_index": 3,
+    "issue_type": "APP_GENERATION_FEEDBACK",
+    "target_agent": "CONTENT_INTERACTION",
+    "llm_judge_used": true,
+    "instruction_summary": "Improve state-machine markers in interaction flow to match Prototype Builder requirements",
+    "result_status": "RETRY_RECOMMENDED",
+    "notes": [
+      "SCREEN_IMPROVEMENT_RESULT state marker 누락 문제 해결",
+      "Prototype Builder가 요구하는 state-machine marker와의 정렬 강화",
+      "interaction flow에서 개선형 퀘스트 결과 화면(state)에 대한 명시적 정의 추가",
+      "Prototype Builder가 fallback template을 사용했으며, 이는 flow/state markers가 누락되었기 때문입니다. Content & Interaction Agent는 flow/state markers를 포함한 interaction flow를 정의하므로, 이 부분을 명확히 해야 합니다. Requirement Mapping은 이미 구조화되어 있고, Spec Intake는 변경되지 않았으므로 CONTENT_INTERACTION이 가장 적합한 retry target입니다."
+    ]
+  }
+]
