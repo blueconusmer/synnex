@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import Field
 
-from schemas.implementation.common import AgentLabel, QuizItem, SchemaModel
+from schemas.implementation.common import AgentLabel, InteractionUnit, QuizItem, SchemaModel
 from schemas.implementation.implementation_spec import ImplementationSpec
 from schemas.implementation.requirement_mapping import RequirementMappingOutput
 from schemas.implementation.spec_intake import SpecIntakeOutput
@@ -82,10 +84,38 @@ class SemanticValidationSummary(SchemaModel):
     )
 
 
+class InteractionValidationSummary(SchemaModel):
+    interaction_mode: str = Field(description="Interaction strategy hint used by the agent.")
+    mode_inference_reason: str = Field(
+        default="",
+        description="Deterministic explanation for how interaction_mode was inferred.",
+    )
+    unit_count: int = Field(description="Total number of interaction units.")
+    unit_type_counts: dict[str, int] = Field(
+        default_factory=dict,
+        description="Counts by interaction_type.",
+    )
+    structure_valid: bool = Field(
+        description="Whether interaction_units satisfied the structural validator.",
+    )
+    issues: list[str] = Field(
+        default_factory=list,
+        description="Validation issues found in the interaction-unit structure.",
+    )
+
+
 class ContentInteractionOutput(SchemaModel):
     agent: AgentLabel | None = Field(default=None, description="Agent label metadata.")
     service_summary: str = Field(
-        description="Short summary describing the generated quiz service."
+        description="Short summary describing the generated educational service."
+    )
+    interaction_mode: str = Field(
+        default="quiz",
+        description="Generation and validation hint: quiz, coaching, or general.",
+    )
+    interaction_mode_reason: str = Field(
+        default="",
+        description="Reason why the interaction_mode was chosen.",
     )
     quiz_types: list[str] = Field(
         default_factory=list,
@@ -111,7 +141,23 @@ class ContentInteractionOutput(SchemaModel):
         default_factory=list,
         description="Notes describing how the learner should experience the quiz flow.",
     )
+    interaction_units: list[InteractionUnit] = Field(
+        default_factory=list,
+        description="Primary structured interaction flow units for downstream builders.",
+    )
+    flow_notes: list[str] = Field(
+        default_factory=list,
+        description="High-level flow notes describing how the interaction should progress.",
+    )
+    evaluation_rules: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Generalized evaluation rules for quiz scoring or coaching feedback.",
+    )
     semantic_validation: SemanticValidationSummary | None = Field(
         default=None,
         description="Semantic validation summary for the generated content.",
+    )
+    interaction_validation: InteractionValidationSummary | None = Field(
+        default=None,
+        description="Structural validation summary for interaction_units.",
     )

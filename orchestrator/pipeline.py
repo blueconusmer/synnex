@@ -720,6 +720,10 @@ class ImplementationPipeline:
     ) -> None:
         quiz_types = content_output.quiz_types
         total_items = len(content_output.items)
+        interaction_mode = content_output.interaction_mode or "quiz"
+        interaction_reason = content_output.interaction_mode_reason or "not provided"
+        interaction_summary = content_output.interaction_validation
+        interaction_unit_count = len(content_output.interaction_units)
         semantic_summary = content_output.semantic_validation
         streamlit_smoke_ran = "streamlit_smoke" in run_test_and_fix_output.checks_run
         streamlit_smoke_failed = any(
@@ -763,11 +767,20 @@ class ImplementationPipeline:
             [
                 "",
                 "## 콘텐츠 생성 요약",
+                f"- interaction_mode: {interaction_mode}",
+                f"- interaction_mode_reason: {interaction_reason}",
+                f"- interaction_units 수: {interaction_unit_count}",
+                (
+                    "- interaction_type 분포: "
+                    f"{interaction_summary.unit_type_counts if interaction_summary else {}}"
+                ),
+                f"- QuizItem 수: {total_items}",
+                f"- QuizItem 하위 호환 사용 여부: {'YES' if total_items else 'NO'}",
                 f"- 퀴즈 유형 수: {len(quiz_types)}",
-                f"- 총 문제 수: {total_items}",
             ]
         )
-        lines.extend(f"- 유형: {quiz_type}" for quiz_type in quiz_types)
+        if quiz_types:
+            lines.extend(f"- 유형: {quiz_type}" for quiz_type in quiz_types)
         lines.extend(
             [
                 "",
@@ -814,6 +827,26 @@ class ImplementationPipeline:
                     (
                         "- 재생성 발생 여부: "
                         f"{'YES' if semantic_summary.regeneration_requested else 'NO'}"
+                    ),
+                    (
+                        "- app.py Streamlit smoke test 여부: "
+                        f"{'PASS' if streamlit_smoke_ran and not streamlit_smoke_failed else 'FAIL'}"
+                    ),
+                    (
+                        "- package pytest.py 통과 여부: "
+                        f"{'PASS' if package_pytest_ran and not package_pytest_failed else 'FAIL' if package_pytest_ran else 'NOT RUN'}"
+                    ),
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "",
+                    "## #12 검증 결과",
+                    "- 총 문항 semantic validator 여부: N/A (interaction-unit primary mode)",
+                    (
+                        "- interaction_units 구조 validator 통과 여부: "
+                        f"{'PASS' if interaction_summary and interaction_summary.structure_valid else 'FAIL'}"
                     ),
                     (
                         "- app.py Streamlit smoke test 여부: "

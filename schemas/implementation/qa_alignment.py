@@ -19,7 +19,7 @@ class QAAlignmentInput(SchemaModel):
         description="Implementation contract output."
     )
     content_interaction_output: ContentInteractionOutput = Field(
-        description="Generated quiz contents and interaction notes."
+        description="Generated educational contents and interaction structures."
     )
     prototype_builder_output: PrototypeBuilderOutput = Field(
         description="Generated code artifacts."

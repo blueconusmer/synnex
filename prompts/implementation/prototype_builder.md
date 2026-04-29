@@ -22,6 +22,21 @@
 콘텐츠 데이터:
 {content_interaction_output}
 
+interaction_mode:
+{interaction_mode}
+
+interaction_mode_reason:
+{interaction_mode_reason}
+
+interaction_units(primary contract):
+{interaction_units}
+
+flow_notes:
+{flow_notes}
+
+evaluation_rules:
+{evaluation_rules}
+
 interface_spec:
 {interface_spec}
 
@@ -45,6 +60,9 @@ prompt_spec:
   - 콘텐츠 파일이 없으면 `st.warning(...)` 또는 `st.error(...)`로 사용자에게 안내해야 한다.
 - 금지: `CONTENT_PATH = "{content_filename}"`를 먼저 검사한 뒤 `outputs/{content_filename}`를 fallback으로 읽는 root-first 로딩 구조.
 - app.py 실행 시 planning package 파일(interface_spec.md, state_machine.md, data_schema.json, prompt_spec.md, constitution.md)을 다시 읽으면 안 된다.
+- `interaction_units`는 화면 흐름 생성을 위한 primary contract다.
+- 화면 흐름은 `interaction_units`의 순서, `interaction_type`, `next_step`, `metadata`를 기준으로 구성한다.
+- `interaction_mode`는 secondary hint only다. quiz/coaching 전용 deterministic template을 새로 만들지 말고, `interaction_units` 계약을 우선 해석하라.
 - 세션 런타임 quest는 `quest_id`, `quest_type`, `difficulty`, `topic_context`, `original_question`, `options` 필드를 기준으로 동작해야 한다.
 - raw 콘텐츠 필드 `item_id`, `choices`는 정규화 단계에서만 사용하고, 제출/결과 화면 로직에서 직접 참조하지 않는다.
 - `streamlit` 앱에서 사용자는 문제 풀이, 정답 확인, 해설과 학습 포인트 확인이 가능해야 한다.

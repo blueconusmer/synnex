@@ -131,6 +131,12 @@ class FakeLLMClient:
             total_count = _extract_int_from_prompt(prompt, "total_count", default=8)
             items_per_type = _extract_int_from_prompt(prompt, "items_per_type", default=2)
             service_name = _extract_scalar_from_prompt(prompt, "service_name") or "교육 서비스"
+            interaction_mode = _extract_scalar_from_prompt(prompt, "interaction_mode(hint only)") or _extract_scalar_from_prompt(prompt, "interaction_mode") or _infer_fake_interaction_mode(content_types, prompt)
+            interaction_mode_reason = (
+                "fake deterministic mode inference"
+                if interaction_mode != "general"
+                else "fake deterministic fallback to general mode"
+            )
 
             if (
                 content_types == DEFAULT_CONTENT_TYPES
@@ -138,6 +144,35 @@ class FakeLLMClient:
                 and total_count == 8
             ):
                 return self._build_default_content_output(response_model)
+
+            if interaction_mode in {"coaching", "general"} and not _looks_like_quiz_content_types(content_types):
+                interaction_units = _build_non_quiz_interaction_units(
+                    service_name=service_name,
+                    learning_dimensions=learning_dimensions,
+                )
+                return response_model.model_validate(
+                    {
+                        "agent": {
+                            "english_name": "Content & Interaction Agent",
+                            "korean_name": "교육 콘텐츠·상호작용 생성 Agent",
+                        },
+                        "service_summary": f"{service_name}용 interaction-unit 중심 콘텐츠다.",
+                        "interaction_mode": interaction_mode,
+                        "interaction_mode_reason": interaction_mode_reason,
+                        "interaction_units": interaction_units,
+                        "flow_notes": [
+                            "사용자는 자유 입력을 하고 진단 결과를 본 뒤 다음 행동을 안내받는다.",
+                        ],
+                        "evaluation_rules": {
+                            "mode": interaction_mode,
+                            "diagnosis_criteria": learning_dimensions,
+                            "feedback_policy": "사용자 자유 입력을 기반으로 개선 방향을 제안한다.",
+                        },
+                        "interaction_notes": [
+                            "interaction_units를 primary contract로 사용한다.",
+                        ],
+                    }
+                )
 
             items = []
             answer_key = {}
@@ -181,6 +216,8 @@ class FakeLLMClient:
                 explanations[item_id] = explanation
                 learning_points[item_id] = learning_point
 
+            interaction_units = _build_quiz_interaction_units_from_items(items)
+
             return response_model.model_validate(
                 {
                     "agent": {
@@ -188,6 +225,8 @@ class FakeLLMClient:
                         "korean_name": "교육 콘텐츠·상호작용 생성 Agent",
                     },
                     "service_summary": f"{service_name}용 {total_count}문항 콘텐츠다.",
+                    "interaction_mode": interaction_mode,
+                    "interaction_mode_reason": interaction_mode_reason,
                     "quiz_types": content_types,
                     "items": items,
                     "answer_key": answer_key,
@@ -197,6 +236,15 @@ class FakeLLMClient:
                         "사용자는 문제를 순서대로 풀 수 있다.",
                         "채점 후 각 문항의 정답, 해설, 학습 포인트를 확인한다.",
                     ],
+                    "interaction_units": interaction_units,
+                    "flow_notes": [
+                        "interaction_units의 순서와 next_step에 따라 화면 흐름을 구성한다.",
+                    ],
+                    "evaluation_rules": {
+                        "mode": "quiz",
+                        "score_policy": {"per_item": 1, "total_items": total_count},
+                        "feedback_type": "feedback",
+                    },
                 }
             )
 
@@ -499,6 +547,8 @@ class FakeLLMClient:
             explanations[item_id] = explanation
             learning_points[item_id] = learning_point
 
+        interaction_units = _build_quiz_interaction_units_from_items(items)
+
         return response_model.model_validate(
             {
                 "agent": {
@@ -506,6 +556,8 @@ class FakeLLMClient:
                     "korean_name": "교육 콘텐츠·상호작용 생성 Agent",
                 },
                 "service_summary": "중학생의 질문력을 높이는 8문항 퀴즈형 MVP 콘텐츠다.",
+                "interaction_mode": "quiz",
+                "interaction_mode_reason": "fake deterministic mode inference",
                 "quiz_types": quiz_types,
                 "items": items,
                 "answer_key": answer_key,
@@ -515,6 +567,15 @@ class FakeLLMClient:
                     "사용자는 객관식 문제를 순서대로 풀 수 있다.",
                     "채점 후 각 문항의 정답, 해설, 학습 포인트를 확인한다.",
                 ],
+                "interaction_units": interaction_units,
+                "flow_notes": [
+                    "interaction_units의 순서와 next_step에 따라 문제 풀이와 결과 화면이 이어진다.",
+                ],
+                "evaluation_rules": {
+                    "mode": "quiz",
+                    "score_policy": {"per_item": 1, "total_items": 8},
+                    "feedback_type": "feedback",
+                },
             }
         )
 
@@ -531,6 +592,156 @@ def _build_question_for_type(quiz_type: str) -> str:
     if quiz_type == "상황에 맞는 질문 만들기":
         return "다음 상황에서 가장 적절한 질문은 무엇일까? (과학 발표 준비)"
     return "다음 중 더 좋은 질문은 무엇일까?"
+
+
+def _infer_fake_interaction_mode(content_types: list[str], prompt: str) -> str:
+    lowered = prompt.lower()
+    if any(marker in lowered for marker in ["/api/chat", "coaching", "되묻기", "챗봇"]):
+        return "coaching"
+    if _looks_like_quiz_content_types(content_types):
+        return "quiz"
+    return "general"
+
+
+def _looks_like_quiz_content_types(content_types: list[str]) -> bool:
+    quiz_markers = {
+        "multiple_choice",
+        "question_improvement",
+        "질문에서 빠진 요소 찾기",
+        "더 좋은 질문 고르기",
+        "모호한 질문 고치기",
+        "상황에 맞는 질문 만들기",
+    }
+    return bool(content_types) and all(content_type in quiz_markers for content_type in content_types)
+
+
+def _build_quiz_interaction_units_from_items(items: list[dict[str, object]]) -> list[dict[str, object]]:
+    units: list[dict[str, object]] = []
+    for item in items:
+        item_id = str(item["item_id"])
+        quiz_type = str(item["quiz_type"])
+        action_type = "free_text_input" if quiz_type == "question_improvement" else "multiple_choice"
+        units.append(
+            {
+                "unit_id": f"{item_id}_action",
+                "interaction_type": action_type,
+                "title": item["title"],
+                "learner_action": item["question"],
+                "system_response": item["topic_context"],
+                "input_format": "free_text" if action_type == "free_text_input" else "multiple_choice",
+                "feedback_rule": "응답 후 결과 피드백을 제공한다.",
+                "learning_dimension": item["learning_dimension"],
+                "next_step": f"{item_id}_feedback",
+                "metadata": {
+                    "source_item_id": item_id,
+                    "quiz_type": quiz_type,
+                    "choices": list(item["choices"]),
+                    "correct_choice": item["correct_choice"],
+                    "difficulty": item["difficulty"],
+                    "topic_context": item["topic_context"],
+                    "original_question": item["original_question"],
+                },
+            }
+        )
+        units.append(
+            {
+                "unit_id": f"{item_id}_feedback",
+                "interaction_type": "feedback",
+                "title": f"{item['title']} 결과",
+                "learner_action": "",
+                "system_response": item["explanation"],
+                "input_format": "",
+                "feedback_rule": "정답, 해설, 학습 포인트를 보여 준다.",
+                "learning_dimension": item["learning_dimension"],
+                "next_step": "",
+                "metadata": {
+                    "source_item_id": item_id,
+                    "choices": list(item["choices"]),
+                    "correct_choice": item["correct_choice"],
+                    "explanation": item["explanation"],
+                    "learning_point": item["learning_point"],
+                },
+            }
+        )
+
+    units.append(
+        {
+            "unit_id": "session_summary",
+            "interaction_type": "score_summary",
+            "title": "세션 요약",
+            "learner_action": "",
+            "system_response": "전체 점수와 학습 포인트를 요약한다.",
+            "input_format": "",
+            "feedback_rule": "세션 종료 시 전체 결과를 요약한다.",
+            "learning_dimension": "",
+            "next_step": "END",
+            "metadata": {"source": "fake_quiz_session"},
+        }
+    )
+
+    for index, unit in enumerate(units):
+        if unit["next_step"]:
+            continue
+        unit["next_step"] = units[index + 1]["unit_id"] if index + 1 < len(units) else "END"
+    return units
+
+
+def _build_non_quiz_interaction_units(
+    *,
+    service_name: str,
+    learning_dimensions: list[str],
+) -> list[dict[str, object]]:
+    primary_dimension = learning_dimensions[0] if learning_dimensions else "구체성"
+    return [
+        {
+            "unit_id": "chat_input",
+            "interaction_type": "free_text_input",
+            "title": f"{service_name} 질문 입력",
+            "learner_action": "학습자가 현재 질문이나 고민을 자유롭게 입력한다.",
+            "system_response": "질문을 입력하면 진단을 시작한다.",
+            "input_format": "free_text",
+            "feedback_rule": "입력 후 diagnosis 단계로 이동한다.",
+            "learning_dimension": primary_dimension,
+            "next_step": "chat_diagnosis",
+            "metadata": {"purpose": "user_question_input"},
+        },
+        {
+            "unit_id": "chat_diagnosis",
+            "interaction_type": "diagnosis",
+            "title": "질문 진단",
+            "learner_action": "",
+            "system_response": "질문의 구체성, 맥락성, 목적성을 간단히 진단한다.",
+            "input_format": "",
+            "feedback_rule": "진단 기준을 바탕으로 coaching_feedback으로 이동한다.",
+            "learning_dimension": primary_dimension,
+            "next_step": "chat_feedback",
+            "metadata": {"diagnosis_criteria": learning_dimensions},
+        },
+        {
+            "unit_id": "chat_feedback",
+            "interaction_type": "coaching_feedback",
+            "title": "개선 피드백",
+            "learner_action": "",
+            "system_response": "사용자 자유 입력을 바탕으로 더 좋은 질문 방향을 제안한다.",
+            "input_format": "",
+            "feedback_rule": "coaching feedback을 제공한 뒤 다음 행동을 안내한다.",
+            "learning_dimension": primary_dimension,
+            "next_step": "next_step_guide",
+            "metadata": {"feedback_scope": "question_improvement"},
+        },
+        {
+            "unit_id": "next_step_guide",
+            "interaction_type": "next_step_guide",
+            "title": "다음 단계 안내",
+            "learner_action": "",
+            "system_response": "개선된 질문을 다시 입력하거나 세션을 종료할 수 있다.",
+            "input_format": "",
+            "feedback_rule": "세션 종료 또는 재입력을 안내한다.",
+            "learning_dimension": primary_dimension,
+            "next_step": "END",
+            "metadata": {"completion": "guided"},
+        },
+    ]
 
 
 def _build_choices_for_type(quiz_type: str) -> list[str]:

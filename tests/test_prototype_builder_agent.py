@@ -92,6 +92,9 @@ def test_prototype_builder_materializes_llm_generated_app_from_planning_package(
     assert "quest_id" in prompt
     assert "current_screen" in prompt
     assert "st.rerun()" in prompt
+    assert "interaction_units(primary contract)" in prompt
+    assert '"interaction_mode": "quiz"' in prompt or "interaction_mode:\nquiz" in prompt
+    assert "primary contract" in prompt
 
 
 def test_prototype_builder_uses_fallback_when_llm_call_fails() -> None:
