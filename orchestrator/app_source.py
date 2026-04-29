@@ -309,40 +309,69 @@ def _build_quest_streamlit_app_source(
                 return GRADE_LEVELS[0] if GRADE_LEVELS else ""
 
 
-            def normalize_quest(item: dict[str, Any], difficulty: str) -> dict[str, Any]:
-                quest = dict(item)
-                quest.setdefault("difficulty", difficulty)
-                quest.setdefault("topic_context", quest.get("learning_dimension") or SERVICE_NAME)
-                quest.setdefault("original_question", quest.get("question") or "질문을 더 좋게 만들어 보세요.")
-                quest.setdefault("options", list(quest.get("choices", [])))
-                if quest.get("correct_choice") in quest.get("options", []):
-                    quest.setdefault("correct_option_index", quest["options"].index(quest["correct_choice"]))
-                else:
-                    quest.setdefault("correct_option_index", None)
-                return quest
+            def normalize_quest(item: dict[str, Any]) -> dict[str, Any]:
+                quiz_type = str(item.get("quiz_type") or "")
+                inferred_difficulty = "intro" if quiz_type == "multiple_choice" else "main"
+                options = list(item.get("choices", []))
+                correct_option_text = item.get("correct_choice")
+                correct_option_index = (
+                    options.index(correct_option_text) if correct_option_text in options else None
+                )
+                question = item.get("question") or "질문을 더 좋게 만들어 보세요."
+                return {
+                    "quest_id": str(item.get("item_id") or uuid4()),
+                    "quest_type": quiz_type,
+                    "difficulty": item.get("difficulty") or inferred_difficulty,
+                    "topic_context": item.get("topic_context") or item.get("learning_dimension") or SERVICE_NAME,
+                    "title": item.get("title") or question,
+                    "question": question,
+                    "original_question": item.get("original_question") or question,
+                    "options": options,
+                    "correct_option_text": correct_option_text,
+                    "correct_option_index": correct_option_index,
+                    "explanation": item.get("explanation") or "",
+                    "learning_point": item.get("learning_point") or "",
+                }
 
 
             def build_session_quests(data: dict[str, Any]) -> list[dict[str, Any]]:
-                items = list(data.get("items", []))
+                normalized = [normalize_quest(item) for item in data.get("items", [])]
+                intro_candidates = [
+                    quest
+                    for quest in normalized
+                    if quest.get("difficulty") == "intro"
+                    and quest.get("quest_type") == "multiple_choice"
+                ]
+                main_candidates = [
+                    quest
+                    for quest in normalized
+                    if quest.get("difficulty") == "main"
+                    and quest.get("quest_type") == "question_improvement"
+                ]
+                if intro_candidates and len(main_candidates) >= 2:
+                    return [intro_candidates[0], main_candidates[0], main_candidates[1]]
+
                 multiple_choice = [
-                    normalize_quest(item, "intro")
-                    for item in items
-                    if item.get("quiz_type") == "multiple_choice"
+                    quest for quest in normalized if quest.get("quest_type") == "multiple_choice"
                 ]
                 question_improvement = [
-                    normalize_quest(item, "main")
-                    for item in items
-                    if item.get("quiz_type") == "question_improvement"
+                    quest
+                    for quest in normalized
+                    if quest.get("quest_type") == "question_improvement"
                 ]
-                if len(multiple_choice) < 1 or len(question_improvement) < 2:
-                    raise ValueError(
-                        "세션을 구성하려면 multiple_choice 1개와 question_improvement 2개가 필요합니다."
-                    )
-                return [
-                    multiple_choice[0],
-                    question_improvement[0],
-                    question_improvement[1],
-                ]
+                if len(multiple_choice) >= 1 and len(question_improvement) >= 2:
+                    return [multiple_choice[0], question_improvement[0], question_improvement[1]]
+
+                raise ValueError(
+                    "퀘스트를 불러오지 못했어요. multiple_choice 1개와 question_improvement 2개가 필요합니다."
+                )
+
+
+            def screen_for_quest(quest: dict[str, Any], *, feedback: bool = False) -> str:
+                quest_type = quest.get("quest_type")
+                if quest_type == "multiple_choice":
+                    return SCREEN_MULTIPLE_CHOICE_RESULT if feedback else SCREEN_MULTIPLE_CHOICE
+                return SCREEN_IMPROVEMENT_RESULT if feedback else SCREEN_IMPROVEMENT
 
 
             def calculate_multiple_choice_score(is_correct: bool) -> int:
@@ -472,7 +501,7 @@ def _build_quest_streamlit_app_source(
                 st.session_state.session_finalized = False
                 st.session_state.grade_up_event = None
                 st.session_state.last_api_response = response
-                st.session_state.current_screen = SCREEN_MULTIPLE_CHOICE
+                st.session_state.current_screen = screen_for_quest(session_quests[0])
                 return response
 
 
@@ -482,8 +511,11 @@ def _build_quest_streamlit_app_source(
                     st.session_state.current_quest_index == len(st.session_state.session_quests) - 1
                 )
 
-                if quest.get("quiz_type") == "multiple_choice":
-                    is_correct = user_response == quest.get("correct_choice")
+                if quest.get("quest_type") == "multiple_choice":
+                    if not isinstance(user_response, str) or user_response not in quest.get("options", []):
+                        return {"error_code": "E_NO_SELECTION", "error_message": "선택지를 골라주세요"}
+
+                    is_correct = user_response == quest.get("correct_option_text")
                     earned_score = calculate_multiple_choice_score(is_correct)
                     response = {
                         "answer_id": str(uuid4()),
@@ -496,8 +528,15 @@ def _build_quest_streamlit_app_source(
                         "correct_option_index": quest.get("correct_option_index"),
                         "is_session_complete": is_session_complete,
                     }
-                    st.session_state.current_screen = SCREEN_MULTIPLE_CHOICE_RESULT
                 else:
+                    if not isinstance(user_response, str) or not user_response.strip():
+                        return {"error_code": "E_EMPTY_INPUT", "error_message": "질문을 작성해주세요"}
+                    if len(user_response.strip()) < IMPROVEMENT_MIN_LENGTH:
+                        return {
+                            "error_code": "E_TOO_SHORT",
+                            "error_message": "조금 더 자세히 작성해주세요 (최소 10자)",
+                        }
+
                     rubric = evaluate_improvement_response(str(user_response))
                     overall = rubric["overall"]
                     earned_score = calculate_improvement_score(overall)
@@ -511,12 +550,12 @@ def _build_quest_streamlit_app_source(
                         "earned_score": earned_score,
                         "is_session_complete": is_session_complete,
                     }
-                    st.session_state.current_screen = SCREEN_IMPROVEMENT_RESULT
 
                 st.session_state.session_score += int(response["earned_score"])
                 st.session_state.last_result = response
-                st.session_state.last_submission = str(user_response)
+                st.session_state.last_submission = user_response
                 st.session_state.last_api_response = response
+                st.session_state.current_screen = screen_for_quest(quest, feedback=True)
                 return response
 
 
@@ -601,14 +640,14 @@ def _build_quest_streamlit_app_source(
                 st.write(f"학습 맥락: {quest.get('topic_context') or SERVICE_NAME}")
                 st.write(f"원본 질문: {quest.get('original_question') or quest.get('question')}")
                 st.info(quest.get("question") or "이 질문을 더 좋게 바꾼 선택지를 골라보세요.")
-                choice_key = f"choice_{quest['item_id']}"
+                choice_key = f"choice_{quest['quest_id']}"
                 st.radio("선택지를 고르세요.", quest.get("options", []), index=None, key=choice_key)
                 if st.button("제출", type="primary"):
                     selected = st.session_state.get(choice_key)
-                    if not selected:
-                        st.warning("선택지를 골라주세요.")
+                    response = api_quest_submit(selected)
+                    if "error_code" in response:
+                        st.warning(response["error_message"])
                     else:
-                        api_quest_submit(selected)
                         st.rerun()
 
 
@@ -620,14 +659,17 @@ def _build_quest_streamlit_app_source(
                 st.subheader("객관식 결과")
                 st.success("정답입니다!" if is_correct else "이 질문도 좋아요")
                 st.write(f"내가 고른 답: {st.session_state.last_submission or '미응답'}")
-                st.write(f"정답: {quest.get('correct_choice', '-')}")
+                st.write(f"정답: {quest.get('correct_option_text', '-')}")
                 st.write(f"해설: {evaluation.get('feedback', quest.get('explanation', ''))}")
+                if quest.get("learning_point"):
+                    st.write(f"학습 포인트: {quest['learning_point']}")
                 st.write(f"획득 점수: +{result.get('earned_score', 0)}점")
                 if st.button("다음 퀘스트로", type="primary"):
                     st.session_state.current_quest_index += 1
                     st.session_state.last_result = None
                     st.session_state.last_submission = ""
-                    st.session_state.current_screen = SCREEN_IMPROVEMENT
+                    next_quest = st.session_state.session_quests[st.session_state.current_quest_index]
+                    st.session_state.current_screen = screen_for_quest(next_quest)
                     st.rerun()
 
 
@@ -638,7 +680,7 @@ def _build_quest_streamlit_app_source(
                 st.write(f"학습 맥락: {quest.get('topic_context') or SERVICE_NAME}")
                 st.write(f"원본 질문: {quest.get('original_question') or quest.get('question')}")
                 st.info("이 질문을 더 명확하게 바꿔보세요. 무엇을, 왜, 어떻게가 들어가면 좋아요.")
-                text_key = f"text_{quest['item_id']}"
+                text_key = f"text_{quest['quest_id']}"
                 user_text = st.text_area(
                     "질문 다시 쓰기",
                     key=text_key,
@@ -647,12 +689,10 @@ def _build_quest_streamlit_app_source(
                 )
                 st.caption(f"{len(user_text)} / {IMPROVEMENT_MAX_LENGTH}")
                 if st.button("제출", type="primary"):
-                    if not user_text.strip():
-                        st.warning("질문을 작성해주세요.")
-                    elif len(user_text.strip()) < IMPROVEMENT_MIN_LENGTH:
-                        st.warning("조금 더 자세히 작성해주세요 (최소 10자).")
+                    response = api_quest_submit(user_text.strip())
+                    if "error_code" in response:
+                        st.warning(response["error_message"])
                     else:
-                        api_quest_submit(user_text.strip())
                         st.rerun()
 
 
@@ -684,6 +724,8 @@ def _build_quest_streamlit_app_source(
                     )
                 )
                 st.write(f"피드백: {evaluation.get('feedback', '')}")
+                if quest.get("learning_point"):
+                    st.write(f"학습 포인트: {quest['learning_point']}")
                 st.write(f"획득 점수: +{result.get('earned_score', 0)}점")
                 button_label = (
                     "결과 보기"
@@ -698,11 +740,7 @@ def _build_quest_streamlit_app_source(
                     else:
                         st.session_state.current_quest_index += 1
                         next_quest = st.session_state.session_quests[st.session_state.current_quest_index]
-                        st.session_state.current_screen = (
-                            SCREEN_MULTIPLE_CHOICE
-                            if next_quest.get("quiz_type") == "multiple_choice"
-                            else SCREEN_IMPROVEMENT
-                        )
+                        st.session_state.current_screen = screen_for_quest(next_quest)
                     st.rerun()
 
 

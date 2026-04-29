@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import subprocess
 import sys
@@ -18,6 +19,15 @@ from tests.fakes import FakeLLMClient
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _load_root_app_module():
+    spec = importlib.util.spec_from_file_location("root_app_module", REPO_ROOT / "app.py")
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _assert_streamlit_app_starts(app_path: Path, *, cwd: Path, port: int) -> None:
@@ -218,3 +228,71 @@ def test_root_app_improvement_evaluator_call_arity_matches_definition() -> None:
         if node.func.id != "evaluate_improvement_question":
             continue
         assert len(node.args) <= max_positional_args
+
+
+def test_root_app_normalizes_quest_shape_and_falls_back_without_difficulty() -> None:
+    module = _load_root_app_module()
+    data = {
+        "items": [
+            {
+                "item_id": "mc-1",
+                "quiz_type": "multiple_choice",
+                "title": "더 좋은 질문 고르기",
+                "question": "이 질문을 더 좋게 바꾼 선택지를 골라보세요.",
+                "original_question": "비유가 뭔지 모르겠어.",
+                "topic_context": "국어 숙제",
+                "choices": ["A", "B", "C", "D"],
+                "correct_choice": "B",
+                "explanation": "맥락과 목적이 더 분명한 선택지예요.",
+                "learning_point": "질문에 맥락을 넣어보세요.",
+            },
+            {
+                "item_id": "qi-1",
+                "quiz_type": "question_improvement",
+                "title": "질문 더 좋게 만들기 1",
+                "question": "질문을 더 구체적으로 다시 써보세요.",
+                "original_question": "이거 왜 그래?",
+                "topic_context": "과학 수행평가",
+                "choices": [],
+                "correct_choice": "",
+                "explanation": "상황을 더 밝혀야 해요.",
+                "learning_point": "구체성과 목적성을 함께 드러내세요.",
+            },
+            {
+                "item_id": "qi-2",
+                "quiz_type": "question_improvement",
+                "title": "질문 더 좋게 만들기 2",
+                "question": "질문을 더 명확하게 다시 써보세요.",
+                "original_question": "설명해줘.",
+                "topic_context": "사회 발표 준비",
+                "choices": [],
+                "correct_choice": "",
+                "explanation": "도움이 필요한 이유를 넣어야 해요.",
+                "learning_point": "맥락과 목적을 함께 적어보세요.",
+            },
+        ]
+    }
+
+    quests = module.build_session_quests(data)
+
+    assert [quest["quest_type"] for quest in quests] == [
+        "multiple_choice",
+        "question_improvement",
+        "question_improvement",
+    ]
+    assert quests[0]["quest_id"] == "mc-1"
+    assert quests[0]["options"] == ["A", "B", "C", "D"]
+    assert quests[0]["correct_option_text"] == "B"
+    assert quests[0]["correct_option_index"] == 1
+    assert quests[0]["difficulty"] == "intro"
+    assert quests[1]["difficulty"] == "main"
+    assert quests[2]["difficulty"] == "main"
+
+
+def test_root_app_source_uses_feedback_states_and_modern_rerun() -> None:
+    source = (REPO_ROOT / "app.py").read_text(encoding="utf-8")
+    assert "SCREEN_MULTIPLE_CHOICE_RESULT" in source
+    assert "SCREEN_IMPROVEMENT_RESULT" in source
+    assert "current_screen" in source
+    assert "st.rerun()" in source
+    assert "st.experimental_rerun" not in source
