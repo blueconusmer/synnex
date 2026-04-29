@@ -18,6 +18,7 @@ from tests.fakes import FakeLLMClient
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = REPO_ROOT / "inputs" / "mock_planning_outputs" / "question_quest_v0"
+QUEST_V2_PACKAGE_DIR = REPO_ROOT / "inputs" / "260429_퀘스트_v2"
 
 
 def test_load_planning_package_reads_fixture_files() -> None:
@@ -203,3 +204,65 @@ def test_pipeline_runs_with_planning_package_adapter(tmp_path: Path) -> None:
 def test_missing_package_dir_raises_file_not_found_error() -> None:
     with pytest.raises(FileNotFoundError):
         load_planning_package(REPO_ROOT / "inputs" / "mock_planning_outputs" / "missing_package")
+
+
+def test_load_planning_package_reads_question_quest_v2_fixture() -> None:
+    package = load_planning_package(QUEST_V2_PACKAGE_DIR)
+
+    assert package.service_meta.service_name == "260429_퀘스트"
+    assert package.service_meta.target_framework == "streamlit"
+    assert package.content_spec.content_types == [
+        "multiple_choice",
+        "situation_card",
+        "question_improvement",
+        "battle",
+    ]
+    assert package.content_spec.total_count == 5
+    assert package.interface_spec.screens == [
+        "S0",
+        "S1",
+        "S2",
+        "S3",
+        "S4",
+        "S5",
+        "S6",
+        "S7",
+        "S8",
+    ]
+    assert package.interface_spec.api_endpoints == [
+        "/api/session/start",
+        "/api/quest/submit",
+        "/api/battle/submit",
+        "/api/session/result",
+    ]
+    assert package.interaction_spec.session_structure == [
+        "session_start",
+        "quest_active",
+        "quest_feedback",
+        "battle_round_active",
+        "battle_round_feedback",
+        "battle_completed",
+        "session_completed",
+        "error",
+    ]
+
+
+def test_input_intake_reads_question_quest_v2_distribution() -> None:
+    intake_result = load_input_intake(QUEST_V2_PACKAGE_DIR)
+
+    assert intake_result.status in {ValidationStatus.AUTO_FIXED, ValidationStatus.PASS}
+    assert intake_result.implementation_spec is not None
+    assert intake_result.implementation_spec.target_framework == "streamlit"
+    assert intake_result.implementation_spec.total_count == 5
+    assert intake_result.implementation_spec.content_distribution == {
+        "multiple_choice": 1,
+        "situation_card": 2,
+        "question_improvement": 1,
+        "battle": 1,
+    }
+    assert intake_result.runtime_config.content_distribution.item_count_by_type == {
+        "multiple_choice": 1,
+        "situation_card": 2,
+        "question_improvement": 1,
+        "battle": 1,
+    }

@@ -140,12 +140,25 @@ def load_input_intake(
             code="PLANNING_PACKAGE_PARSE_FAILED",
         )
 
-    return validate_and_normalize_planning_package(
+    intake_result = validate_and_normalize_planning_package(
         package=package,
         package_dir=package_dir,
         implementation_spec=implementation_spec,
         quality_judge=quality_judge or DeterministicInputQualityJudge(),
     )
+    if intake_result.implementation_spec is not None:
+        intake_result = intake_result.model_copy(
+            update={
+                "implementation_spec": intake_result.implementation_spec.model_copy(
+                    update={
+                        "content_distribution": dict(
+                            intake_result.runtime_config.content_distribution.item_count_by_type
+                        )
+                    }
+                )
+            }
+        )
+    return intake_result
 
 
 def planning_package_to_implementation_spec(
@@ -166,6 +179,7 @@ def planning_package_to_implementation_spec(
         core_features=package.content_spec.content_types,
         total_count=package.content_spec.total_count,
         items_per_type=package.content_spec.items_per_type,
+        content_distribution={},
         content_interaction_direction=(
             package.interaction_spec.session_structure
             + package.interaction_spec.state_transitions
@@ -200,8 +214,9 @@ def _parse_markdown_sections(text: str) -> dict[str, list[str]]:
     current_section: str | None = None
     sections: dict[str, list[str]] = {}
     for line in text.splitlines():
-        if line.startswith("## "):
-            current_section = line[3:].strip()
+        heading_match = re.match(r"^(#{2,3})\s+(.+)$", line)
+        if heading_match:
+            current_section = heading_match.group(2).strip()
             sections.setdefault(current_section, [])
             continue
         if current_section is not None:
@@ -291,9 +306,9 @@ def _extract_service_grades(text: str) -> dict[str, list[int | None]]:
         if not line.startswith("| "):
             continue
         parts = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(parts) != 2:
+        if len(parts) < 2:
             continue
-        grade, score_range = parts
+        grade, score_range = parts[0], parts[1]
         if grade not in {"브론즈", "실버", "골드", "플래티넘"}:
             continue
         numbers = [int(num) for num in re.findall(r"\d+", score_range)]
@@ -337,14 +352,15 @@ def _build_interaction_scoring_rules(
     data_schema: dict,
     state_machine_text: str,
 ) -> dict:
-    session_completion = (
-        "3개 퀘스트 모두 제출 완료 시 세션 결과 화면 표시"
-        if "3개 퀘스트 모두 제출 완료" in constitution_text
-        else ""
-    )
+    session_completion = ""
+    if "3개 퀘스트 모두 제출 완료" in constitution_text:
+        session_completion = "3개 퀘스트 모두 제출 완료 시 세션 결과 화면 표시"
+    elif "5개 퀘스트로 구성" in constitution_text or "session_completed" in state_machine_text:
+        session_completion = "5개 퀘스트와 배틀 단계 완료 후 세션 결과 화면 표시"
     grade_up_message = (
         "축하해요! 이제 [등급] 단계예요"
         if "축하해요! 이제 [등급] 단계예요" in constitution_text
+        or "축하해요! 이제 {new_grade} 단계예요!" in constitution_text
         else ""
     )
 
@@ -376,12 +392,13 @@ def _extract_total_count(data_schema: dict) -> int:
         data_schema.get("definitions", {})
         .get("Session", {})
         .get("fields", {})
-        .get("quest_ids", {})
     )
-    min_length = session_fields.get("min_length")
-    max_length = session_fields.get("max_length")
-    if min_length == max_length and isinstance(min_length, int):
-        return min_length
+    for field_name in ["quest_ids", "quest_sequence"]:
+        field_spec = session_fields.get(field_name, {})
+        min_length = field_spec.get("min_length")
+        max_length = field_spec.get("max_length")
+        if min_length == max_length and isinstance(min_length, int):
+            return min_length
     return 0
 
 
@@ -416,13 +433,44 @@ def _extract_difficulty_levels(data_schema: dict) -> list[str]:
 
 
 def _extract_session_structure(text: str) -> list[str]:
-    matches = re.findall(r"\[(SESSION_START|QUEST_\d+_(?:ACTIVE|FEEDBACK)|SESSION_COMPLETED)\]", text)
-    return matches or []
+    legacy_matches = re.findall(
+        r"\[(SESSION_START|QUEST_\d+_(?:ACTIVE|FEEDBACK)|SESSION_COMPLETED)\]",
+        text,
+    )
+    if legacy_matches:
+        return legacy_matches
+
+    section_match = re.search(
+        r"##\s+1\.\s*상태 목록(.*?)(?:\n##\s+2\.|\Z)",
+        text,
+        re.DOTALL,
+    )
+    section_text = section_match.group(1) if section_match else text
+    states: list[str] = []
+    for line in section_text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        matches = re.findall(r"`([^`]+)`", stripped)
+        if not matches:
+            continue
+        state_name = matches[0].strip()
+        if state_name and state_name not in states:
+            states.append(state_name)
+    return states
 
 
 def _extract_state_transitions(text: str) -> list[str]:
     states = _extract_session_structure(text)
-    return [f"{current}->{next_state}" for current, next_state in zip(states, states[1:])]
+    if states:
+        return [f"{current}->{next_state}" for current, next_state in zip(states, states[1:])]
+
+    transitions = re.findall(
+        r"상태:\s*([A-Za-z0-9_]+).*?상태:\s*([A-Za-z0-9_]+)",
+        text,
+        re.DOTALL,
+    )
+    return [f"{current}->{next_state}" for current, next_state in transitions]
 
 
 def _extract_screens(sections: dict[str, list[str]]) -> list[str]:
@@ -435,14 +483,29 @@ def _extract_screens(sections: dict[str, list[str]]) -> list[str]:
 
 
 def _extract_api_endpoints(text: str) -> list[str]:
-    endpoints = re.findall(r"\*\*Endpoint\*\*:\s*`(?:[A-Z]+)\s+([^`]+)`", text)
-    return [endpoint.split("?")[0] for endpoint in endpoints] if endpoints else []
+    matches = re.findall(r"`(?:POST|GET|PUT|PATCH|DELETE)\s+([^`]+)`", text)
+    endpoints: list[str] = []
+    for endpoint in matches:
+        normalized = endpoint.split("?")[0].strip()
+        if normalized and normalized not in endpoints:
+            endpoints.append(normalized)
+    return endpoints
 
 
 def _extract_generation_prompt(text: str, sections: dict[str, list[str]]) -> str:
-    intro_prompt = _extract_code_block_after_heading(text, "### 1.1. 객관식 퀘스트 생성 (intro)")
-    main_prompt = _extract_code_block_after_heading(text, "### 1.2. 질문 개선형 퀘스트 생성 (main)")
-    prompts = [prompt for prompt in [intro_prompt, main_prompt] if prompt]
+    prompt_headings = [
+        "### 1.1. 객관식 퀘스트 생성 (intro)",
+        "### 1.2. 질문 개선형 퀘스트 생성 (main)",
+        "### 1.1. 객관식 퀘스트 생성 (multiple_choice)",
+        "### 1.2. 상황 카드형 퀘스트 생성 (situation_card / situation_card_advanced)",
+        "### 1.3. 질문 개선형 퀘스트 생성 (question_improvement)",
+        "### 1.4. 배틀 퀘스트 AI 질문 생성 (battle)",
+    ]
+    prompts = [
+        prompt
+        for heading in prompt_headings
+        if (prompt := _extract_code_block_after_heading(text, heading))
+    ]
     if prompts:
         return "\n\n".join(prompts)
     return _section_text(sections, "퀘스트 생성 프롬프트")

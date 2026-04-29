@@ -343,6 +343,21 @@ def _repair_and_validate_content(
     for item, assessment in zip(output.items, initial_assessments):
         _apply_allowed_label_corrections(item, assessment)
 
+    synthesized_item_ids = _append_missing_quiz_items_if_needed(
+        output=output,
+        content_types=content_types,
+        learning_dimensions=learning_dimensions,
+        expected_total=expected_total,
+        target_quiz_type_counts=target_quiz_type_counts,
+    )
+    if synthesized_item_ids:
+        _normalize_structural_contract(output)
+        initial_assessments = [
+            _assess_item(item, content_types, learning_dimensions) for item in output.items
+        ]
+        for item, assessment in zip(output.items, initial_assessments):
+            _apply_allowed_label_corrections(item, assessment)
+
     regeneration_plan = _plan_regeneration(initial_assessments)
     regeneration_plan.extend(
         _plan_distribution_regeneration(
@@ -352,7 +367,7 @@ def _repair_and_validate_content(
         )
     )
     regeneration_plan = _deduplicate_regeneration_plan(regeneration_plan)
-    regenerated_item_ids: list[str] = []
+    regenerated_item_ids: list[str] = list(synthesized_item_ids)
 
     if regeneration_plan:
         for item_index, target_quiz_type, target_dimension in regeneration_plan:
@@ -589,6 +604,134 @@ def _synthesize_quiz_interaction_units(items: list[QuizItem]) -> list[Interactio
         unit.next_step = units[index + 1].unit_id if index + 1 < len(units) else "END"
 
     return units
+
+
+def _append_missing_quiz_items_if_needed(
+    *,
+    output: ContentInteractionOutput,
+    content_types: list[str],
+    learning_dimensions: list[str],
+    expected_total: int,
+    target_quiz_type_counts: dict[str, int],
+) -> list[str]:
+    synthesized_item_ids: list[str] = []
+    current_counts = Counter(item.quiz_type for item in output.items)
+    missing_slots = max(expected_total - len(output.items), 0)
+
+    if target_quiz_type_counts and missing_slots > 0:
+        for quiz_type, target_count in target_quiz_type_counts.items():
+            while current_counts.get(quiz_type, 0) < target_count and missing_slots > 0:
+                item_id = f"{quiz_type}_fallback_{current_counts.get(quiz_type, 0) + 1}"
+                item = _build_fallback_quiz_item(
+                    item_id=item_id,
+                    quiz_type=quiz_type,
+                    learning_dimension=_select_learning_dimension_for_quiz_type(
+                        quiz_type=quiz_type,
+                        learning_dimensions=learning_dimensions,
+                    ),
+                )
+                output.items.append(item)
+                synthesized_item_ids.append(item_id)
+                current_counts[quiz_type] += 1
+                missing_slots -= 1
+
+    while missing_slots > 0 and content_types:
+        quiz_type = content_types[len(output.items) % len(content_types)]
+        item_id = f"{quiz_type}_fallback_{len(output.items) + 1}"
+        item = _build_fallback_quiz_item(
+            item_id=item_id,
+            quiz_type=quiz_type,
+            learning_dimension=_select_learning_dimension_for_quiz_type(
+                quiz_type=quiz_type,
+                learning_dimensions=learning_dimensions,
+            ),
+        )
+        output.items.append(item)
+        synthesized_item_ids.append(item_id)
+        missing_slots -= 1
+
+    return synthesized_item_ids
+
+
+def _select_learning_dimension_for_quiz_type(
+    *,
+    quiz_type: str,
+    learning_dimensions: list[str],
+) -> str:
+    preference_map = {
+        "multiple_choice": ["구체성", "맥락성", "목적성", "종합성"],
+        "situation_card": ["맥락성", "목적성", "구체성", "종합성"],
+        "question_improvement": ["구체성", "목적성", "맥락성", "종합성"],
+        "battle": ["종합성", "목적성", "맥락성", "구체성"],
+    }
+    for candidate in preference_map.get(quiz_type, []):
+        if candidate in learning_dimensions:
+            return candidate
+    return learning_dimensions[0] if learning_dimensions else "구체성"
+
+
+def _build_fallback_quiz_item(
+    *,
+    item_id: str,
+    quiz_type: str,
+    learning_dimension: str,
+) -> QuizItem:
+    base = {
+        "item_id": item_id,
+        "quiz_type": quiz_type,
+        "learning_dimension": learning_dimension,
+        "topic_context": "중학생 학습 상황",
+        "explanation": "질문에 주제, 상황, 원하는 답을 함께 넣으면 더 좋은 답변을 받을 수 있어요.",
+        "learning_point": "질문력의 핵심 요소를 함께 드러내 보세요.",
+    }
+    if quiz_type == "multiple_choice":
+        return QuizItem(
+            **base,
+            title="좋은 질문 고르기",
+            question="다음 중 AI에게 더 잘 물어본 질문을 고르세요.",
+            original_question="설명해줘.",
+            choices=[
+                "비유가 뭐야?",
+                "국어 숙제인데 '내 마음은 호수요'가 왜 비유인지 예시와 함께 설명해줘.",
+                "이거 이해 안 돼.",
+                "문학이 어려워.",
+            ],
+            correct_choice="국어 숙제인데 '내 마음은 호수요'가 왜 비유인지 예시와 함께 설명해줘.",
+            difficulty="intro",
+        )
+    if quiz_type == "situation_card":
+        return QuizItem(
+            **base,
+            title="상황 카드",
+            question="이 상황에서 AI에게 어떻게 질문할지 작성해 보세요.",
+            original_question="도와줘.",
+            situation="과학 수행평가 발표를 준비하는 상황",
+            correct_choice="",
+            choices=[],
+            difficulty="main",
+        )
+    if quiz_type == "battle":
+        return QuizItem(
+            **base,
+            title="배틀 퀘스트",
+            question="AI보다 더 좋은 질문을 만들어 보세요.",
+            original_question="설명해줘.",
+            situation="국어 수행평가에서 비유 표현을 설명해야 하는 상황",
+            ai_question="비유가 뭔지 설명해줘.",
+            stage_level="bronze",
+            correct_choice="",
+            choices=[],
+            difficulty="main_advanced",
+        )
+    return QuizItem(
+        **base,
+        title="질문 개선하기",
+        question="이 질문을 더 명확하게 다시 써 보세요.",
+        original_question="이거 왜 그래?",
+        correct_choice="",
+        choices=[],
+        difficulty="main",
+    )
 
 
 def _build_quiz_evaluation_rules(
@@ -1238,7 +1381,7 @@ def _validate_interaction_units(
     interaction_mode: str,
 ) -> InteractionValidationSummary:
     issues: list[str] = []
-    units = output.interaction_units
+    units = output.interaction_units or []
 
     if interaction_mode in {"coaching", "general"} and not units:
         issues.append("interaction_units must not be empty for coaching/general mode.")

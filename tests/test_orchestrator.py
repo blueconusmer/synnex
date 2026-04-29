@@ -14,6 +14,7 @@ from tests.fakes import FakeLLMClient
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+QUEST_V2_PACKAGE_DIR = REPO_ROOT / "inputs" / "260429_퀘스트_v2"
 
 
 def _build_coaching_spec():
@@ -423,6 +424,57 @@ def test_pipeline_falls_back_when_patch_still_fails(tmp_path: Path) -> None:
     assert "PATCH_FAILED" in prototype_output["builder_errors"]
     assert "FALLBACK_USED" in prototype_output["builder_errors"]
     assert "FALLBACK_USED" in "\n".join(run_test_output["fixes_applied"])
+
+
+def test_pipeline_runs_for_question_quest_v2_baseline(tmp_path: Path) -> None:
+    intake_result = load_input_intake(QUEST_V2_PACKAGE_DIR)
+    assert intake_result.implementation_spec is not None
+    implementation_spec = intake_result.implementation_spec
+    content_filename = build_content_filename(implementation_spec.service_name)
+    app_target_path = tmp_path / "outputs" / "question_quest_v2" / "app.py"
+
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(),
+        spec_path=QUEST_V2_PACKAGE_DIR,
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs" / "question_quest_v2",
+        implementation_spec=implementation_spec,
+        input_intake_result=intake_result,
+        app_target_path=app_target_path,
+        enable_streamlit_smoke=False,
+    )
+
+    pipeline.run()
+
+    output_dir = tmp_path / "outputs" / "question_quest_v2"
+    payload = json.loads((output_dir / content_filename).read_text(encoding="utf-8"))
+    builder_output = json.loads(
+        (output_dir / "prototype_builder_output.json").read_text(encoding="utf-8")
+    )
+    final_summary = (output_dir / "final_summary.md").read_text(encoding="utf-8")
+    qa_report = (output_dir / "qa_report.md").read_text(encoding="utf-8")
+
+    assert intake_result.runtime_config.target_framework == "streamlit"
+    assert payload["interaction_mode"] == "quiz"
+    assert "quest" in payload["interaction_mode_reason"].lower()
+    assert len(payload["interaction_units"]) >= len(payload["items"]) * 2
+    assert payload["interaction_validation"]["structure_valid"] is True
+    assert [item["quiz_type"] for item in payload["items"]] == [
+        "multiple_choice",
+        "situation_card",
+        "question_improvement",
+        "situation_card",
+        "battle",
+    ]
+    assert app_target_path.exists()
+    assert (output_dir / "input_intake_report.json").exists()
+    assert (output_dir / "run_test_and_fix_output.json").exists()
+    assert (output_dir / "qa_report.md").exists()
+    assert (output_dir / "final_summary.md").exists()
+    assert "interaction_mode=quiz" in final_summary
+    assert "interaction_units 수 확인" in qa_report
+    assert "fallback template 사용 여부" in qa_report
+    assert builder_output["target_framework"] == "streamlit"
 
 
 def test_feedback_router_targets_spec_intake_for_weak_spec(tmp_path: Path) -> None:

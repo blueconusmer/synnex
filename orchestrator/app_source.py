@@ -207,12 +207,18 @@ def _build_quest_streamlit_app_source(
             GRADE_LEVELS = $GRADE_LEVELS
             GRADE_THRESHOLDS = $GRADE_THRESHOLDS
 
+            QUEST_V2_MODE = len(SCREENS) >= 9
             SCREEN_START = SCREENS[0] if len(SCREENS) > 0 else "S0"
             SCREEN_MULTIPLE_CHOICE = SCREENS[1] if len(SCREENS) > 1 else "S1"
             SCREEN_MULTIPLE_CHOICE_RESULT = SCREENS[2] if len(SCREENS) > 2 else "S2"
-            SCREEN_IMPROVEMENT = SCREENS[3] if len(SCREENS) > 3 else "S3"
-            SCREEN_IMPROVEMENT_RESULT = SCREENS[4] if len(SCREENS) > 4 else "S4"
-            SCREEN_SESSION_RESULT = SCREENS[5] if len(SCREENS) > 5 else "S5"
+            SCREEN_WRITING = SCREENS[3] if len(SCREENS) > 3 else "S3"
+            SCREEN_WRITING_RESULT = SCREENS[4] if len(SCREENS) > 4 else "S4"
+            SCREEN_BATTLE = SCREENS[5] if len(SCREENS) > 5 else "S5"
+            SCREEN_BATTLE_RESULT = SCREENS[6] if len(SCREENS) > 6 else SCREEN_WRITING_RESULT
+            SCREEN_BATTLE_COMPLETED = SCREENS[7] if len(SCREENS) > 7 else SCREEN_BATTLE_RESULT
+            SCREEN_SESSION_RESULT = SCREENS[8] if len(SCREENS) > 8 else (SCREENS[5] if len(SCREENS) > 5 else "S5")
+            SCREEN_IMPROVEMENT = SCREEN_WRITING
+            SCREEN_IMPROVEMENT_RESULT = SCREEN_WRITING_RESULT
 
             IMPROVEMENT_MIN_LENGTH = 10
             IMPROVEMENT_MAX_LENGTH = 300
@@ -326,6 +332,9 @@ def _build_quest_streamlit_app_source(
                     "title": item.get("title") or question,
                     "question": question,
                     "original_question": item.get("original_question") or question,
+                    "situation": item.get("situation") or question,
+                    "stage_level": item.get("stage_level") or "",
+                    "ai_question": item.get("ai_question") or "",
                     "options": options,
                     "correct_option_text": correct_option_text,
                     "correct_option_index": correct_option_index,
@@ -336,6 +345,53 @@ def _build_quest_streamlit_app_source(
 
             def build_session_quests(data: dict[str, Any]) -> list[dict[str, Any]]:
                 normalized = [normalize_quest(item) for item in data.get("items", [])]
+                if QUEST_V2_MODE:
+                    multiple_choice = [
+                        quest for quest in normalized if quest.get("quest_type") == "multiple_choice"
+                    ]
+                    situation_cards = [
+                        quest for quest in normalized if quest.get("quest_type") == "situation_card"
+                    ]
+                    question_improvements = [
+                        quest
+                        for quest in normalized
+                        if quest.get("quest_type") == "question_improvement"
+                    ]
+                    battle_quests = [
+                        quest for quest in normalized if quest.get("quest_type") == "battle"
+                    ]
+                    if (
+                        multiple_choice
+                        and len(situation_cards) >= 2
+                        and question_improvements
+                        and battle_quests
+                    ):
+                        lead_situation = next(
+                            (
+                                quest
+                                for quest in situation_cards
+                                if quest.get("difficulty") == "main"
+                            ),
+                            situation_cards[0],
+                        )
+                        trailing_situation_candidates = [
+                            quest
+                            for quest in situation_cards
+                            if quest.get("quest_id") != lead_situation.get("quest_id")
+                        ]
+                        trailing_situation = (
+                            trailing_situation_candidates[0]
+                            if trailing_situation_candidates
+                            else situation_cards[-1]
+                        )
+                        return [
+                            multiple_choice[0],
+                            lead_situation,
+                            question_improvements[0],
+                            trailing_situation,
+                            battle_quests[0],
+                        ]
+
                 intro_candidates = [
                     quest
                     for quest in normalized
@@ -371,7 +427,9 @@ def _build_quest_streamlit_app_source(
                 quest_type = quest.get("quest_type")
                 if quest_type == "multiple_choice":
                     return SCREEN_MULTIPLE_CHOICE_RESULT if feedback else SCREEN_MULTIPLE_CHOICE
-                return SCREEN_IMPROVEMENT_RESULT if feedback else SCREEN_IMPROVEMENT
+                if quest_type == "battle":
+                    return SCREEN_BATTLE_RESULT if feedback else SCREEN_BATTLE
+                return SCREEN_WRITING_RESULT if feedback else SCREEN_WRITING
 
 
             def calculate_multiple_choice_score(is_correct: bool) -> int:
@@ -528,6 +586,35 @@ def _build_quest_streamlit_app_source(
                         "correct_option_index": quest.get("correct_option_index"),
                         "is_session_complete": is_session_complete,
                     }
+                elif quest.get("quest_type") == "battle":
+                    if not isinstance(user_response, str) or not user_response.strip():
+                        return {"error_code": "E_EMPTY_INPUT", "error_message": "질문을 작성해주세요"}
+                    if len(user_response.strip()) < IMPROVEMENT_MIN_LENGTH:
+                        return {
+                            "error_code": "E_TOO_SHORT",
+                            "error_message": "조금 더 자세히 작성해주세요 (최소 10자)",
+                        }
+
+                    rubric = evaluate_improvement_response(str(user_response))
+                    overall = rubric["overall"]
+                    earned_score = calculate_improvement_score(overall)
+                    round_winner = "user" if overall != "needs_work" else "ai"
+                    battle_bonus = 10 if round_winner == "user" else 0
+                    response = {
+                        "answer_id": str(uuid4()),
+                        "evaluation": {
+                            "evaluation_type": "battle",
+                            "rubric_result": rubric,
+                            "feedback": build_improvement_feedback(rubric),
+                            "round_winner": round_winner,
+                            "ai_question": quest.get("ai_question") or "AI 질문이 준비되지 않았습니다.",
+                            "user_wins": 1 if round_winner == "user" else 0,
+                            "ai_wins": 0 if round_winner == "user" else 1,
+                        },
+                        "earned_score": earned_score + battle_bonus,
+                        "battle_bonus": battle_bonus,
+                        "is_session_complete": is_session_complete,
+                    }
                 else:
                     if not isinstance(user_response, str) or not user_response.strip():
                         return {"error_code": "E_EMPTY_INPUT", "error_message": "질문을 작성해주세요"}
@@ -620,7 +707,10 @@ def _build_quest_streamlit_app_source(
             def render_start_screen() -> None:
                 st.title("오늘의 질문력 퀘스트")
                 st.caption(SERVICE_NAME)
-                st.write("3개의 퀘스트를 풀고 질문력 점수를 쌓아보세요!")
+                if QUEST_V2_MODE:
+                    st.write("Q1 객관식 → Q2 상황카드 → Q3 질문 개선 → Q4 상황카드 심화 → Q5 배틀을 진행해 보세요.")
+                else:
+                    st.write("3개의 퀘스트를 풀고 질문력 점수를 쌓아보세요!")
                 col1, col2 = st.columns(2)
                 col1.metric("현재 등급", st.session_state.current_grade or "-")
                 col2.metric("누적 점수", st.session_state.cumulative_score)
@@ -673,13 +763,21 @@ def _build_quest_streamlit_app_source(
                     st.rerun()
 
 
-            def render_improvement_screen() -> None:
+            def render_writing_screen() -> None:
                 quest = st.session_state.session_quests[st.session_state.current_quest_index]
-                st.subheader("질문 더 좋게 만들기")
+                quest_type = quest.get("quest_type")
+                if quest_type == "situation_card":
+                    st.subheader("상황 카드 퀘스트")
+                else:
+                    st.subheader("질문 더 좋게 만들기")
                 st.caption(f"퀘스트 {st.session_state.current_quest_index + 1} / {len(st.session_state.session_quests)}")
                 st.write(f"학습 맥락: {quest.get('topic_context') or SERVICE_NAME}")
-                st.write(f"원본 질문: {quest.get('original_question') or quest.get('question')}")
-                st.info("이 질문을 더 명확하게 바꿔보세요. 무엇을, 왜, 어떻게가 들어가면 좋아요.")
+                if quest_type == "situation_card":
+                    st.write(f"상황 카드: {quest.get('situation') or quest.get('question')}")
+                    st.info("이 상황에서 AI에게 어떻게 질문할지 작성해보세요. 주제, 상황, 원하는 답을 함께 넣으면 좋아요.")
+                else:
+                    st.write(f"원본 질문: {quest.get('original_question') or quest.get('question')}")
+                    st.info("이 질문을 더 명확하게 바꿔보세요. 무엇을, 왜, 어떻게가 들어가면 좋아요.")
                 text_key = f"text_{quest['quest_id']}"
                 user_text = st.text_area(
                     "질문 다시 쓰기",
@@ -696,7 +794,7 @@ def _build_quest_streamlit_app_source(
                         st.rerun()
 
 
-            def render_improvement_result() -> None:
+            def render_writing_result() -> None:
                 quest = st.session_state.session_quests[st.session_state.current_quest_index]
                 result = st.session_state.last_result or {}
                 evaluation = result.get("evaluation", {})
@@ -707,11 +805,18 @@ def _build_quest_streamlit_app_source(
                     "good": "좋아졌어요!",
                     "needs_work": "한 부분만 더 보완해볼까요?",
                 }
-                st.subheader("개선형 퀘스트 결과")
+                if quest.get("quest_type") == "situation_card":
+                    st.subheader("상황 카드 결과")
+                else:
+                    st.subheader("개선형 퀘스트 결과")
                 st.success(header_map.get(overall, "좋아졌어요!"))
                 col1, col2 = st.columns(2)
                 col1.markdown("**Before**")
-                col1.write(quest.get("original_question") or quest.get("question"))
+                col1.write(
+                    quest.get("situation")
+                    if quest.get("quest_type") == "situation_card"
+                    else (quest.get("original_question") or quest.get("question"))
+                )
                 col2.markdown("**After**")
                 col2.write(st.session_state.last_submission or "미응답")
                 st.write(
@@ -741,6 +846,74 @@ def _build_quest_streamlit_app_source(
                         st.session_state.current_quest_index += 1
                         next_quest = st.session_state.session_quests[st.session_state.current_quest_index]
                         st.session_state.current_screen = screen_for_quest(next_quest)
+                    st.rerun()
+
+
+            def render_battle_screen() -> None:
+                quest = st.session_state.session_quests[st.session_state.current_quest_index]
+                st.subheader("배틀 라운드 진행")
+                st.caption(f"퀘스트 {st.session_state.current_quest_index + 1} / {len(st.session_state.session_quests)}")
+                st.write(f"학습 맥락: {quest.get('topic_context') or SERVICE_NAME}")
+                st.write(f"상황 카드: {quest.get('situation') or quest.get('question')}")
+                if quest.get("ai_question"):
+                    st.write(f"AI 질문: {quest['ai_question']}")
+                st.info("AI보다 더 좋은 질문을 작성해 보세요.")
+                text_key = f"battle_{quest['quest_id']}"
+                user_text = st.text_area(
+                    "내 질문 작성",
+                    key=text_key,
+                    max_chars=IMPROVEMENT_MAX_LENGTH,
+                    height=180,
+                )
+                st.caption(f"{len(user_text)} / {IMPROVEMENT_MAX_LENGTH}")
+                if st.button("배틀 제출", type="primary"):
+                    response = api_quest_submit(user_text.strip())
+                    if "error_code" in response:
+                        st.warning(response["error_message"])
+                    else:
+                        st.rerun()
+
+
+            def render_battle_result() -> None:
+                quest = st.session_state.session_quests[st.session_state.current_quest_index]
+                result = st.session_state.last_result or {}
+                evaluation = result.get("evaluation", {})
+                round_winner = evaluation.get("round_winner", "draw")
+                st.subheader("배틀 라운드 결과")
+                if round_winner == "user":
+                    st.success("이겼어요!")
+                elif round_winner == "ai":
+                    st.warning("이번엔 AI가 더 잘했어요")
+                else:
+                    st.info("이번 라운드는 비겼어요")
+                st.write(f"내 질문: {st.session_state.last_submission or '미응답'}")
+                st.write(f"AI 질문: {evaluation.get('ai_question', quest.get('ai_question', '-'))}")
+                st.write(f"피드백: {evaluation.get('feedback', quest.get('explanation', ''))}")
+                st.write(f"획득 점수: +{result.get('earned_score', 0)}점")
+                if st.button("배틀 최종 결과 보기", type="primary"):
+                    st.session_state.current_screen = SCREEN_BATTLE_COMPLETED
+                    st.rerun()
+
+
+            def render_battle_completed() -> None:
+                result = st.session_state.last_result or {}
+                evaluation = result.get("evaluation", {})
+                round_winner = evaluation.get("round_winner", "draw")
+                st.subheader("배틀 최종 결과")
+                if round_winner == "user":
+                    st.success("AI를 이겼어요!")
+                elif round_winner == "ai":
+                    st.warning("다음엔 이길 수 있어요!")
+                else:
+                    st.info("아쉽게 비겼어요")
+                st.write(f"배틀 보너스: +{result.get('battle_bonus', 0)}점")
+                st.write(
+                    f"승부 현황: 나 {evaluation.get('user_wins', 0)}승 vs AI {evaluation.get('ai_wins', 0)}승"
+                )
+                if st.button("세션 결과 보기", type="primary"):
+                    st.session_state.last_result = None
+                    st.session_state.last_submission = ""
+                    st.session_state.current_screen = SCREEN_SESSION_RESULT
                     st.rerun()
 
 
@@ -781,10 +954,16 @@ def _build_quest_streamlit_app_source(
                     render_multiple_choice_screen()
                 elif screen == SCREEN_MULTIPLE_CHOICE_RESULT:
                     render_multiple_choice_result()
-                elif screen == SCREEN_IMPROVEMENT:
-                    render_improvement_screen()
-                elif screen == SCREEN_IMPROVEMENT_RESULT:
-                    render_improvement_result()
+                elif screen == SCREEN_WRITING:
+                    render_writing_screen()
+                elif screen == SCREEN_WRITING_RESULT:
+                    render_writing_result()
+                elif screen == SCREEN_BATTLE:
+                    render_battle_screen()
+                elif screen == SCREEN_BATTLE_RESULT:
+                    render_battle_result()
+                elif screen == SCREEN_BATTLE_COMPLETED:
+                    render_battle_completed()
                 elif screen == SCREEN_SESSION_RESULT:
                     render_session_result()
                 else:
