@@ -28,6 +28,10 @@ def _build_package_content_output(fake: FakeLLMClient, service_name: str) -> Con
     return fake.generate_json(prompt=prompt, response_model=ContentInteractionOutput)
 
 
+def _extract_function_block(source: str, name: str, next_name: str) -> str:
+    return source.split(f"def {name}", 1)[1].split(f"def {next_name}", 1)[0]
+
+
 def test_prototype_builder_materializes_llm_generated_app_from_planning_package() -> None:
     fake = FakeLLMClient()
     package = load_planning_package(PACKAGE_DIR)
@@ -60,8 +64,22 @@ def test_prototype_builder_materializes_llm_generated_app_from_planning_package(
     assert "question_quest_contents.json" in source
     assert "OUTPUT_PATH = APP_DIR / \"outputs\" / CONTENT_FILENAME" in source
     assert "CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]" in source
+    assert "current_screen" in source
+    assert "SCREEN_MULTIPLE_CHOICE_RESULT" in source
+    assert "SCREEN_IMPROVEMENT_RESULT" in source
+    assert "st.rerun()" in source
+    assert "st.experimental_rerun" not in source
     assert "load_planning_package" not in source
     assert "constitution.md" not in source
+
+    submit_block = _extract_function_block(
+        source,
+        "api_quest_submit(user_response: Any) -> dict[str, Any]:",
+        "api_session_result() -> dict[str, Any]:",
+    )
+    assert 'quest["choices"]' not in submit_block
+    assert 'quest.get("choices"' not in submit_block
+    assert 'quest["item_id"]' not in submit_block
 
     prompt = fake.prompts[-1]
     assert "# Interface Spec" in prompt
@@ -71,6 +89,9 @@ def test_prototype_builder_materializes_llm_generated_app_from_planning_package(
     assert "prompt_spec" in prompt
     assert "target_framework: streamlit" in prompt
     assert package.service_meta.purpose[:20] in prompt
+    assert "quest_id" in prompt
+    assert "current_screen" in prompt
+    assert "st.rerun()" in prompt
 
 
 def test_prototype_builder_uses_fallback_when_llm_call_fails() -> None:
@@ -175,6 +196,9 @@ APP_DIR = Path(__file__).resolve().parent
 OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
 FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
 CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
+SCREEN_MULTIPLE_CHOICE_RESULT = "S2"
+SCREEN_IMPROVEMENT_RESULT = "S4"
+current_screen = "S3"
 
 
 def resolve_content_path() -> Path | None:
@@ -194,8 +218,12 @@ def api_session_start() -> dict[str, Any]:
 
 def api_quest_submit(user_response: Any) -> dict[str, Any]:
     quest = {
+        "quest_id": "quest-1",
+        "quest_type": "question_improvement",
+        "difficulty": "main",
         "original_question": "이거 뭐야?",
         "topic_context": "국어 숙제",
+        "options": [],
         "desired_answer_form": "예시",
     }
     evaluate_improvement_question(
@@ -211,10 +239,26 @@ def api_session_result() -> dict[str, Any]:
     return {}
 
 
+def render_multiple_choice_screen() -> None:
+    st.write("mc")
+
+
+def render_multiple_choice_result() -> None:
+    st.write("mc-result")
+
+
+def render_improvement_screen() -> None:
+    st.write("improve")
+
+
+def render_improvement_result() -> None:
+    st.write("improve-result")
+
+
 def main() -> None:
     if resolve_content_path() is None:
         st.warning("콘텐츠 파일을 찾지 못했습니다.")
-    st.write("demo")
+    st.rerun()
 
 
 main()
@@ -240,6 +284,94 @@ main()
     assert output.fallback_used is True
     assert "LLM_OUTPUT_INVALID" in output.builder_errors
     assert "evaluate_improvement_question call passes 4 positional args" in output.fallback_reason
+
+
+def test_prototype_builder_rejects_raw_content_fields_in_submit_flow() -> None:
+    raw_field_source = '''from pathlib import Path
+from typing import Any
+
+import streamlit as st
+
+CONTENT_FILENAME = "question_quest_contents.json"
+APP_DIR = Path(__file__).resolve().parent
+OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
+FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
+CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
+SCREEN_MULTIPLE_CHOICE_RESULT = "S2"
+SCREEN_IMPROVEMENT_RESULT = "S4"
+current_screen = "S1"
+
+
+def resolve_content_path() -> Path | None:
+    for candidate in CONTENT_CANDIDATE_PATHS:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def api_session_start() -> dict[str, Any]:
+    return {"quests": []}
+
+
+def api_quest_submit(user_response: Any) -> dict[str, Any]:
+    quest = {"choices": ["A", "B"], "correct_choice": "A"}
+    if user_response == quest["choices"][0]:
+        st.session_state.current_screen = SCREEN_MULTIPLE_CHOICE_RESULT
+    else:
+        st.session_state.current_screen = SCREEN_IMPROVEMENT_RESULT
+    return {"ok": True}
+
+
+def api_session_result() -> dict[str, Any]:
+    return {}
+
+
+def render_multiple_choice_screen() -> None:
+    quest = {"item_id": "item-1", "options": ["A", "B"]}
+    st.write(quest["item_id"])
+
+
+def render_multiple_choice_result() -> None:
+    st.write("result")
+
+
+def render_improvement_screen() -> None:
+    st.write("improve")
+
+
+def render_improvement_result() -> None:
+    st.write("feedback")
+
+
+def main() -> None:
+    if resolve_content_path() is None:
+        st.warning("콘텐츠 파일을 찾지 못했습니다.")
+    st.rerun()
+
+
+main()
+'''
+    fake = FakeLLMClient(app_source=raw_field_source)
+    package = load_planning_package(PACKAGE_DIR)
+    spec = planning_package_to_implementation_spec(package, PACKAGE_DIR)
+
+    output = run_prototype_builder_agent(
+        PrototypeBuilderInput(
+            spec_intake_output=fake.generate_json(prompt="", response_model=SpecIntakeOutput),
+            requirement_mapping_output=fake.generate_json(
+                prompt="",
+                response_model=RequirementMappingOutput,
+            ),
+            content_interaction_output=_build_package_content_output(fake, spec.service_name),
+            implementation_spec=spec,
+        ),
+        fake,
+    )
+
+    assert output.generation_mode == "fallback_template"
+    assert output.fallback_used is True
+    assert "LLM_OUTPUT_INVALID" in output.builder_errors
+    assert "normalized quest fields only" in output.fallback_reason
 
 
 def test_prototype_builder_returns_unsupported_output_for_react() -> None:

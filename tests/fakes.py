@@ -687,6 +687,12 @@ APP_DIR = Path(__file__).resolve().parent
 OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
 FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
 CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
+SCREEN_START = "S0"
+SCREEN_MULTIPLE_CHOICE = "S1"
+SCREEN_MULTIPLE_CHOICE_RESULT = "S2"
+SCREEN_IMPROVEMENT = "S3"
+SCREEN_IMPROVEMENT_RESULT = "S4"
+SCREEN_SESSION_RESULT = "S5"
 
 
 def resolve_content_path() -> Path | None:
@@ -703,12 +709,58 @@ def load_contents() -> dict[str, Any]:
     return json.loads(content_path.read_text(encoding="utf-8"))
 
 
+def ensure_state() -> None:
+    st.session_state.setdefault("current_screen", SCREEN_START)
+    st.session_state.setdefault("session_quests", [])
+    st.session_state.setdefault("current_quest_index", 0)
+    st.session_state.setdefault("last_result", None)
+    st.session_state.setdefault("last_submission", "")
+
+
+def normalize_quest(item: dict[str, Any]) -> dict[str, Any]:
+    options = list(item.get("choices", []))
+    correct_option_text = item.get("correct_choice")
+    correct_option_index = options.index(correct_option_text) if correct_option_text in options else None
+    return {{
+        "quest_id": item.get("item_id", "item-1"),
+        "quest_type": item.get("quiz_type", "multiple_choice"),
+        "difficulty": item.get("difficulty", "intro"),
+        "title": item.get("title", "LLM Generated Item"),
+        "question": item.get("question", ""),
+        "original_question": item.get("original_question", item.get("question", "")),
+        "topic_context": item.get("topic_context", "학습 맥락"),
+        "options": options,
+        "correct_option_text": correct_option_text,
+        "correct_option_index": correct_option_index,
+        "explanation": item.get("explanation", ""),
+        "learning_point": item.get("learning_point", ""),
+    }}
+
+
+def build_session_quests(data: dict[str, Any]) -> list[dict[str, Any]]:
+    items = [normalize_quest(item) for item in data.get("items", [])[:3]]
+    return items
+
+
+def screen_for_quest(quest: dict[str, Any], *, feedback: bool = False) -> str:
+    if quest.get("quest_type") == "multiple_choice":
+        return SCREEN_MULTIPLE_CHOICE_RESULT if feedback else SCREEN_MULTIPLE_CHOICE
+    return SCREEN_IMPROVEMENT_RESULT if feedback else SCREEN_IMPROVEMENT
+
+
 def api_session_start() -> dict[str, Any]:
     data = load_contents()
-    return {{"session_id": "fake-session", "quests": data.get("items", [])[:3]}}
+    quests = build_session_quests(data)
+    st.session_state.session_quests = quests
+    st.session_state.current_quest_index = 0
+    st.session_state.current_screen = screen_for_quest(quests[0]) if quests else SCREEN_START
+    return {{"session_id": "fake-session", "quests": quests}}
 
 
 def api_quest_submit(user_response: Any) -> dict[str, Any]:
+    quest = st.session_state.session_quests[st.session_state.current_quest_index]
+    st.session_state.last_submission = user_response
+    st.session_state.current_screen = screen_for_quest(quest, feedback=True)
     return {{
         "answer_id": "fake-answer",
         "evaluation": {{"evaluation_type": "correctness", "feedback": "테스트 응답입니다."}},
@@ -722,17 +774,56 @@ def api_session_result() -> dict[str, Any]:
     return {{"session_score": 0, "current_grade": "bronze"}}
 
 
+def render_multiple_choice_screen() -> None:
+    quest = st.session_state.session_quests[st.session_state.current_quest_index]
+    st.write(quest.get("question", ""))
+    choice_key = f"choice_{{quest['quest_id']}}"
+    st.radio("선택지를 고르세요.", quest.get("options", []), index=None, key=choice_key)
+    if st.button("제출", key="submit_mc"):
+        selected = st.session_state.get(choice_key)
+        if selected:
+            api_quest_submit(selected)
+            st.rerun()
+
+
+def render_multiple_choice_result() -> None:
+    st.write("객관식 결과")
+
+
+def render_improvement_screen() -> None:
+    quest = st.session_state.session_quests[st.session_state.current_quest_index]
+    st.write(quest.get("question", ""))
+    text_key = f"text_{{quest['quest_id']}}"
+    user_text = st.text_area("질문 다시 쓰기", key=text_key)
+    if st.button("제출", key="submit_improvement") and user_text.strip():
+        api_quest_submit(user_text.strip())
+        st.rerun()
+
+
+def render_improvement_result() -> None:
+    st.write("개선형 결과")
+
+
 def main() -> None:
     st.set_page_config(page_title="LLM Generated MVP", layout="wide")
+    ensure_state()
     st.title("LLM Generated MVP")
     data = load_contents()
     if not data:
         st.warning("콘텐츠 파일을 찾지 못했습니다.")
         return
-    st.write(f"총 {{len(data.get('items', []))}}개 콘텐츠를 읽었습니다.")
-    for item in data.get("items", []):
-        st.markdown(f"### {{item.get('title', item.get('item_id', 'item'))}}")
-        st.write(item.get("question", ""))
+    if not st.session_state.session_quests:
+        api_session_start()
+    if st.session_state.current_screen == SCREEN_MULTIPLE_CHOICE:
+        render_multiple_choice_screen()
+    elif st.session_state.current_screen == SCREEN_MULTIPLE_CHOICE_RESULT:
+        render_multiple_choice_result()
+    elif st.session_state.current_screen == SCREEN_IMPROVEMENT:
+        render_improvement_screen()
+    elif st.session_state.current_screen == SCREEN_IMPROVEMENT_RESULT:
+        render_improvement_result()
+    else:
+        st.write(f"총 {{len(data.get('items', []))}}개 콘텐츠를 읽었습니다.")
 
 
 main()

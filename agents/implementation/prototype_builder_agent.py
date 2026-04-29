@@ -353,6 +353,9 @@ def _validate_generated_app_source(
         raise InvalidAppSourceError(
             "app_source must show user-facing guidance when the content file is missing."
         )
+    if "st.experimental_rerun" in app_source:
+        raise InvalidAppSourceError("app_source must use st.rerun() instead of st.experimental_rerun().")
+    _validate_state_machine_contract(app_source)
     try:
         compile(app_source, "app.py", "exec")
     except SyntaxError as exc:
@@ -377,6 +380,44 @@ def _validate_generated_app_source(
                 f"app_source must not read planning package input at runtime: {forbidden}."
             )
     return app_source.rstrip() + "\n"
+
+
+def _validate_state_machine_contract(app_source: str) -> None:
+    required_markers = [
+        "current_screen",
+        "SCREEN_MULTIPLE_CHOICE_RESULT",
+        "SCREEN_IMPROVEMENT_RESULT",
+        "st.rerun()",
+    ]
+    for marker in required_markers:
+        if marker not in app_source:
+            raise InvalidAppSourceError(
+                f"app_source must include state-machine marker: {marker}."
+            )
+
+    raw_field_patterns = [
+        'quest["item_id"]',
+        "quest['item_id']",
+        'quest.get("item_id"',
+        "quest.get('item_id'",
+        'quest["choices"]',
+        "quest['choices']",
+        'quest.get("choices"',
+        "quest.get('choices'",
+    ]
+    function_pairs = [
+        ("api_quest_submit", "api_session_result"),
+        ("render_multiple_choice_screen", "render_multiple_choice_result"),
+        ("render_multiple_choice_result", "render_improvement_screen"),
+        ("render_improvement_screen", "render_improvement_result"),
+    ]
+    for start_name, end_name in function_pairs:
+        block = _extract_function_block(app_source, start_name, end_name)
+        for pattern in raw_field_patterns:
+            if pattern in block:
+                raise InvalidAppSourceError(
+                    f"{start_name} must use normalized quest fields only; found raw field reference {pattern}."
+                )
 
 
 def _validate_function_call_arity(*, app_source: str, function_name: str) -> None:
@@ -490,6 +531,16 @@ def _has_missing_content_guidance(app_source: str) -> bool:
 
 def _normalize_source_for_contract_checks(app_source: str) -> str:
     return "".join(app_source.lower().split())
+
+
+def _extract_function_block(app_source: str, start_name: str, end_name: str) -> str:
+    start_marker = f"def {start_name}"
+    end_marker = f"def {end_name}"
+    if start_marker not in app_source or end_marker not in app_source:
+        raise InvalidAppSourceError(
+            f"app_source must include function block {start_name} before {end_name}."
+        )
+    return app_source.split(start_marker, 1)[1].split(end_marker, 1)[0]
 
 
 def _strip_python_fence(source: str) -> str:

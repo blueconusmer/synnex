@@ -45,8 +45,13 @@ prompt_spec:
   - 콘텐츠 파일이 없으면 `st.warning(...)` 또는 `st.error(...)`로 사용자에게 안내해야 한다.
 - 금지: `CONTENT_PATH = "{content_filename}"`를 먼저 검사한 뒤 `outputs/{content_filename}`를 fallback으로 읽는 root-first 로딩 구조.
 - app.py 실행 시 planning package 파일(interface_spec.md, state_machine.md, data_schema.json, prompt_spec.md, constitution.md)을 다시 읽으면 안 된다.
+- 세션 런타임 quest는 `quest_id`, `quest_type`, `difficulty`, `topic_context`, `original_question`, `options` 필드를 기준으로 동작해야 한다.
+- raw 콘텐츠 필드 `item_id`, `choices`는 정규화 단계에서만 사용하고, 제출/결과 화면 로직에서 직접 참조하지 않는다.
 - `streamlit` 앱에서 사용자는 문제 풀이, 정답 확인, 해설과 학습 포인트 확인이 가능해야 한다.
 - planning package 입력이면 interface_spec의 S0~S5, state_machine의 세션 흐름, data_schema의 score/grade 규칙, prompt_spec의 평가 의도를 반영한다.
+- Streamlit 재실행 API는 `st.rerun()`만 사용한다. `st.experimental_rerun()`은 사용하지 않는다.
+- `current_screen` 기반 상태 머신으로 `S0`, `S1`, `S2`, `S3`, `S4`, `S5`를 구현한다.
+- 제출 직후 바로 다음 문제로 이동하지 말고, 반드시 `S2` 또는 `S4` feedback screen을 거친다.
 - 개선형 퀘스트 평가는 LLM 호출 없이 글자 수, 맥락 키워드, 목적 키워드 기반 규칙으로 처리한다.
 - 개선형 평가 함수와 호출부의 인자 수는 반드시 일치해야 한다.
   - 예: `evaluate_improvement_question(user_response, original_question, topic_context)`로 정의했다면 호출도 3개 인자만 넘긴다.
