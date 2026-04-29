@@ -4,11 +4,16 @@ from pydantic import Field
 
 from schemas.implementation.common import AgentLabel, SchemaModel
 from schemas.implementation.implementation_spec import ImplementationSpec
+from schemas.implementation.orchestration_decision import RetryInstruction
 
 
 class SpecIntakeInput(SchemaModel):
     implementation_spec: ImplementationSpec = Field(
         description="Parsed implementation specification from the source Markdown file."
+    )
+    retry_instruction: RetryInstruction | None = Field(
+        default=None,
+        description="Optional feedback-loop retry instruction for revising the spec interpretation.",
     )
 
 

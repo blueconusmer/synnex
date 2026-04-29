@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import Field
 
 from schemas.implementation.common import AgentLabel, QuizGenerationRequirements, SchemaModel
+from schemas.implementation.orchestration_decision import RetryInstruction
 from schemas.implementation.spec_intake import SpecIntakeOutput
 
 
@@ -15,6 +16,10 @@ class FilePlan(SchemaModel):
 class RequirementMappingInput(SchemaModel):
     spec_intake_output: SpecIntakeOutput = Field(
         description="Structured output from the spec intake stage."
+    )
+    retry_instruction: RetryInstruction | None = Field(
+        default=None,
+        description="Optional feedback-loop retry instruction for revising requirement mapping.",
     )
 
 

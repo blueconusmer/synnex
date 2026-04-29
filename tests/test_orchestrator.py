@@ -6,13 +6,30 @@ from pathlib import Path
 from loaders import load_input_intake
 from orchestrator.app_source import build_content_filename
 from orchestrator.pipeline import ImplementationPipeline
-from schemas.implementation.common import LocalCheckResult
+from schemas.implementation.common import FailureRecord, LocalCheckResult
 from schemas.implementation.implementation_spec import parse_markdown_spec
+from schemas.implementation.orchestration_decision import OrchestrationDecision, RetryInstruction
 from schemas.planning_package import PlanningReviewItem, ValidationStatus
 from tests.fakes import FakeLLMClient
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+QUEST_V2_PACKAGE_DIR = REPO_ROOT / "inputs" / "260429_퀘스트_v2"
+
+
+def _build_coaching_spec():
+    spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
+    return spec.model_copy(
+        update={
+            "service_name": "질문 코칭 챗봇 MVP",
+            "service_purpose": "중학생 질문 코칭 챗봇 MVP를 구현한다.",
+            "core_features": ["coaching_session"],
+            "learning_goals": ["구체성", "맥락성", "목적성"],
+            "total_count": 1,
+            "items_per_type": 1,
+            "content_distribution": {},
+        }
+    )
 
 
 def test_parse_markdown_spec_extracts_expected_fields() -> None:
@@ -55,6 +72,8 @@ def test_pipeline_with_fake_llm_generates_expected_outputs(tmp_path: Path) -> No
         "prototype_builder_output.json",
         "run_test_and_fix_output.json",
         "qa_alignment_output.json",
+        "orchestration_decision.json",
+        "retry_history.json",
         "execution_log.txt",
         "qa_report.md",
         "change_log.md",
@@ -64,6 +83,10 @@ def test_pipeline_with_fake_llm_generates_expected_outputs(tmp_path: Path) -> No
         assert (output_dir / file_name).exists(), file_name
 
     quiz_contents = json.loads((output_dir / content_filename).read_text(encoding="utf-8"))
+    orchestration_decision = json.loads(
+        (output_dir / "orchestration_decision.json").read_text(encoding="utf-8")
+    )
+    retry_history = json.loads((output_dir / "retry_history.json").read_text(encoding="utf-8"))
     assert len(quiz_contents["quiz_types"]) == 4
     assert len(quiz_contents["items"]) == 8
     assert set(quiz_contents["quiz_types"]) == {
@@ -79,6 +102,8 @@ def test_pipeline_with_fake_llm_generates_expected_outputs(tmp_path: Path) -> No
     assert quiz_contents["semantic_validation"]["semantic_validator_passed"] is True
     assert quiz_contents["semantic_validation"]["quiz_type_distribution_valid"] is True
     assert quiz_contents["semantic_validation"]["learning_dimension_values_valid"] is True
+    assert orchestration_decision["overall_status"] == "PASS"
+    assert retry_history == []
     assert (tmp_path / "app.py").exists()
     assert "LLM_GENERATED_APP_MARKER" in (tmp_path / "app.py").read_text(encoding="utf-8")
 
@@ -110,6 +135,8 @@ def test_pipeline_with_planning_package_generates_service_named_contents(tmp_pat
     assert intake_report_path.exists()
     assert "Input Intake" in final_summary
     assert "Input Intake" in qa_report
+    assert "Feedback Loop Summary" in final_summary
+    assert "Feedback Loop Summary" in qa_report
     assert "interaction_mode" in final_summary
     assert "interaction_units 수" in qa_report
     assert content_path.exists()
@@ -397,3 +424,402 @@ def test_pipeline_falls_back_when_patch_still_fails(tmp_path: Path) -> None:
     assert "PATCH_FAILED" in prototype_output["builder_errors"]
     assert "FALLBACK_USED" in prototype_output["builder_errors"]
     assert "FALLBACK_USED" in "\n".join(run_test_output["fixes_applied"])
+
+
+def test_pipeline_runs_for_question_quest_v2_baseline(tmp_path: Path) -> None:
+    intake_result = load_input_intake(QUEST_V2_PACKAGE_DIR)
+    assert intake_result.implementation_spec is not None
+    implementation_spec = intake_result.implementation_spec
+    content_filename = build_content_filename(implementation_spec.service_name)
+    app_target_path = tmp_path / "outputs" / "question_quest_v2" / "app.py"
+
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(),
+        spec_path=QUEST_V2_PACKAGE_DIR,
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs" / "question_quest_v2",
+        implementation_spec=implementation_spec,
+        input_intake_result=intake_result,
+        app_target_path=app_target_path,
+        enable_streamlit_smoke=False,
+    )
+
+    pipeline.run()
+
+    output_dir = tmp_path / "outputs" / "question_quest_v2"
+    payload = json.loads((output_dir / content_filename).read_text(encoding="utf-8"))
+    builder_output = json.loads(
+        (output_dir / "prototype_builder_output.json").read_text(encoding="utf-8")
+    )
+    final_summary = (output_dir / "final_summary.md").read_text(encoding="utf-8")
+    qa_report = (output_dir / "qa_report.md").read_text(encoding="utf-8")
+
+    assert intake_result.runtime_config.target_framework == "streamlit"
+    assert payload["interaction_mode"] == "quiz"
+    assert "quest" in payload["interaction_mode_reason"].lower()
+    assert len(payload["interaction_units"]) >= len(payload["items"]) * 2
+    assert payload["interaction_validation"]["structure_valid"] is True
+    assert [item["quiz_type"] for item in payload["items"]] == [
+        "multiple_choice",
+        "situation_card",
+        "question_improvement",
+        "situation_card",
+        "battle",
+    ]
+    assert app_target_path.exists()
+    assert (output_dir / "input_intake_report.json").exists()
+    assert (output_dir / "run_test_and_fix_output.json").exists()
+    assert (output_dir / "qa_report.md").exists()
+    assert (output_dir / "final_summary.md").exists()
+    assert "interaction_mode=quiz" in final_summary
+    assert "interaction_units 수 확인" in qa_report
+    assert "fallback template 사용 여부" in qa_report
+    assert builder_output["target_framework"] == "streamlit"
+
+
+def test_feedback_router_targets_spec_intake_for_weak_spec(tmp_path: Path) -> None:
+    spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(weak_spec_first_pass=True),
+        spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    stage_outputs = pipeline._run_pipeline_cycle(
+        spec=spec,
+        content_filename=build_content_filename(spec.service_name),
+        retry_contexts={},
+        start_stage="SPEC_INTAKE",
+        previous_outputs=None,
+    )
+    decision = pipeline._build_feedback_decision(
+        spec=spec,
+        stage_outputs=stage_outputs,
+        retry_count=0,
+    )
+
+    assert decision.issue_type == "SPEC_INTERPRETATION_ISSUE"
+    assert decision.target_agent == "SPEC_INTAKE"
+    assert decision.retry_required is True
+
+
+def test_feedback_router_targets_requirement_mapping_for_weak_contract(tmp_path: Path) -> None:
+    spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(weak_requirement_first_pass=True),
+        spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    stage_outputs = pipeline._run_pipeline_cycle(
+        spec=spec,
+        content_filename=build_content_filename(spec.service_name),
+        retry_contexts={},
+        start_stage="SPEC_INTAKE",
+        previous_outputs=None,
+    )
+    decision = pipeline._build_feedback_decision(
+        spec=spec,
+        stage_outputs=stage_outputs,
+        retry_count=0,
+    )
+
+    assert decision.issue_type == "REQUIREMENT_MAPPING_ISSUE"
+    assert decision.target_agent == "REQUIREMENT_MAPPING"
+    assert decision.retry_required is True
+
+
+def test_feedback_router_targets_content_interaction_for_invalid_units(tmp_path: Path) -> None:
+    spec = _build_coaching_spec()
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(invalid_content_first_pass=True),
+        spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
+        implementation_spec=spec,
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    stage_outputs = pipeline._run_pipeline_cycle(
+        spec=spec,
+        content_filename=build_content_filename(spec.service_name),
+        retry_contexts={},
+        start_stage="SPEC_INTAKE",
+        previous_outputs=None,
+    )
+    decision = pipeline._build_feedback_decision(
+        spec=spec,
+        stage_outputs=stage_outputs,
+        retry_count=0,
+    )
+
+    assert decision.issue_type == "CONTENT_INTERACTION_ISSUE"
+    assert decision.target_agent == "CONTENT_INTERACTION"
+    assert decision.retry_required is True
+
+
+def test_feedback_router_marks_code_only_runtime_failure_out_of_scope(tmp_path: Path) -> None:
+    spec = parse_markdown_spec(REPO_ROOT / "inputs" / "quiz_service_spec.md")
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(),
+        spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+    stage_outputs = pipeline._run_pipeline_cycle(
+        spec=spec,
+        content_filename=build_content_filename(spec.service_name),
+        retry_contexts={},
+        start_stage="SPEC_INTAKE",
+        previous_outputs=None,
+    )
+    failing_run_output = stage_outputs["run_test_and_fix_output"].model_copy(
+        update={
+            "failures": [
+                FailureRecord(
+                    check_name="py_compile",
+                    summary="py_compile failed",
+                    details="fake syntax error",
+                )
+            ],
+            "checks_run": ["py_compile"],
+            "remaining_risks": ["fake syntax error"],
+        }
+    )
+    stage_outputs["run_test_and_fix_output"] = failing_run_output
+
+    decision = pipeline._build_feedback_decision(
+        spec=spec,
+        stage_outputs=stage_outputs,
+        retry_count=0,
+    )
+
+    assert decision.overall_status == "OUT_OF_SCOPE"
+    assert decision.target_agent == "NONE"
+    assert decision.retry_required is False
+
+
+def test_feedback_router_uses_llm_judge_for_ambiguous_app_generation_feedback(
+    tmp_path: Path,
+) -> None:
+    spec = _build_coaching_spec()
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(
+            invalid_content_first_pass=True,
+            invalid_app_generation=True,
+            judge_target="CONTENT_INTERACTION",
+        ),
+        spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
+        implementation_spec=spec,
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    stage_outputs = pipeline._run_pipeline_cycle(
+        spec=spec,
+        content_filename=build_content_filename(spec.service_name),
+        retry_contexts={},
+        start_stage="SPEC_INTAKE",
+        previous_outputs=None,
+    )
+    decision = pipeline._build_feedback_decision(
+        spec=spec,
+        stage_outputs=stage_outputs,
+        retry_count=0,
+    )
+
+    assert decision.issue_type == "APP_GENERATION_FEEDBACK"
+    assert decision.llm_judge_used is True
+    assert decision.llm_judge_status == "SUCCESS"
+    assert decision.target_agent == "CONTENT_INTERACTION"
+    assert decision.retry_required is True
+
+
+def test_feedback_router_falls_back_to_human_review_when_judge_fails(tmp_path: Path) -> None:
+    spec = _build_coaching_spec()
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(
+            invalid_content_first_pass=True,
+            invalid_app_generation=True,
+            judge_fail=True,
+        ),
+        spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
+        implementation_spec=spec,
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    stage_outputs = pipeline._run_pipeline_cycle(
+        spec=spec,
+        content_filename=build_content_filename(spec.service_name),
+        retry_contexts={},
+        start_stage="SPEC_INTAKE",
+        previous_outputs=None,
+    )
+    decision = pipeline._build_feedback_decision(
+        spec=spec,
+        stage_outputs=stage_outputs,
+        retry_count=0,
+    )
+
+    assert decision.overall_status == "NEEDS_HUMAN_REVIEW"
+    assert decision.target_agent == "HUMAN_REVIEW"
+    assert decision.retry_required is False
+    assert decision.llm_judge_used is True
+
+
+def test_pipeline_retries_content_interaction_once_and_completes(tmp_path: Path) -> None:
+    spec = _build_coaching_spec()
+    fake_llm = FakeLLMClient(invalid_content_first_pass=True)
+    pipeline = ImplementationPipeline(
+        llm_client=fake_llm,
+        spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
+        implementation_spec=spec,
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    pipeline.run()
+
+    output_dir = tmp_path / "outputs"
+    decision = json.loads((output_dir / "orchestration_decision.json").read_text(encoding="utf-8"))
+    history = json.loads((output_dir / "retry_history.json").read_text(encoding="utf-8"))
+    content_filename = build_content_filename(spec.service_name)
+    payload = json.loads((output_dir / content_filename).read_text(encoding="utf-8"))
+
+    assert decision["overall_status"] == "RETRY_COMPLETED"
+    assert decision["retry_count"] == 1
+    assert len(history) == 1
+    assert history[0]["target_agent"] == "CONTENT_INTERACTION"
+    assert payload["interaction_validation"]["structure_valid"] is True
+    assert fake_llm.response_call_counts["ContentInteractionOutput"] == 2
+    assert fake_llm.response_call_counts["SpecIntakeOutput"] == 1
+    assert fake_llm.response_call_counts["RequirementMappingOutput"] == 1
+
+
+def test_pipeline_stops_with_human_review_after_same_agent_repeats(tmp_path: Path) -> None:
+    class AlwaysWeakSpecFakeLLMClient(FakeLLMClient):
+        def generate_json(self, *, prompt: str, response_model, system_prompt=None):
+            if response_model.__name__ == "SpecIntakeOutput":
+                return response_model.model_validate(
+                    {
+                        "agent": {
+                            "english_name": "Spec Intake Agent",
+                            "korean_name": "구현 명세서 분석 Agent",
+                        },
+                        "team_identity": "교육 서비스 구현 전문 AI Agent 팀",
+                        "service_summary": "짧음",
+                        "normalized_requirements": [],
+                        "delivery_expectations": [],
+                        "acceptance_focus": [],
+                    }
+                )
+            return super().generate_json(
+                prompt=prompt,
+                response_model=response_model,
+                system_prompt=system_prompt,
+            )
+
+    pipeline = ImplementationPipeline(
+        llm_client=AlwaysWeakSpecFakeLLMClient(),
+        spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    pipeline.run()
+
+    output_dir = tmp_path / "outputs"
+    decision = json.loads((output_dir / "orchestration_decision.json").read_text(encoding="utf-8"))
+    history = json.loads((output_dir / "retry_history.json").read_text(encoding="utf-8"))
+
+    assert decision["overall_status"] == "NEEDS_HUMAN_REVIEW"
+    assert decision["target_agent"] == "HUMAN_REVIEW"
+    assert decision["retry_count"] == 2
+    assert len(history) == 2
+    assert all(entry["target_agent"] == "SPEC_INTAKE" for entry in history)
+
+
+def test_pipeline_stops_after_retry_budget_three(tmp_path: Path) -> None:
+    class BudgetDecisionPipeline(ImplementationPipeline):
+        decision_calls = 0
+
+        def _build_feedback_decision(self, *, spec, stage_outputs, retry_count):
+            self.decision_calls += 1
+            targets = [
+                "SPEC_INTAKE",
+                "REQUIREMENT_MAPPING",
+                "CONTENT_INTERACTION",
+                "SPEC_INTAKE",
+            ]
+            if self.decision_calls > len(targets):
+                return OrchestrationDecision(
+                    overall_status="PASS",
+                    issue_type="NONE",
+                    observed_stage="none",
+                    target_agent="NONE",
+                    candidate_agents=["NONE"],
+                    reason="done",
+                    recommended_action="done",
+                    retry_required=False,
+                    retry_instruction=RetryInstruction(),
+                    llm_judge_used=False,
+                    llm_judge_status="NOT_USED",
+                    retry_count=retry_count,
+                    max_retry_count=3,
+                    should_stop=True,
+                    stop_reason="done",
+                )
+            target = targets[self.decision_calls - 1]
+            return OrchestrationDecision(
+                overall_status="RETRY_RECOMMENDED",
+                issue_type="APP_GENERATION_FEEDBACK",
+                observed_stage="prototype_builder",
+                target_agent=target,
+                candidate_agents=[target],
+                reason="budget test",
+                recommended_action="retry",
+                retry_required=True,
+                retry_instruction=RetryInstruction(summary=f"{target} retry"),
+                llm_judge_used=False,
+                llm_judge_status="NOT_USED",
+                retry_count=retry_count,
+                max_retry_count=3,
+                should_stop=False,
+                stop_reason="",
+            )
+
+    pipeline = BudgetDecisionPipeline(
+        llm_client=FakeLLMClient(),
+        spec_path=REPO_ROOT / "inputs" / "quiz_service_spec.md",
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs",
+        app_target_path=tmp_path / "app.py",
+        enable_streamlit_smoke=False,
+    )
+
+    pipeline.run()
+
+    decision = json.loads((tmp_path / "outputs" / "orchestration_decision.json").read_text(encoding="utf-8"))
+    history = json.loads((tmp_path / "outputs" / "retry_history.json").read_text(encoding="utf-8"))
+
+    assert decision["overall_status"] == "NEEDS_HUMAN_REVIEW"
+    assert decision["retry_count"] == 3
+    assert len(history) == 3

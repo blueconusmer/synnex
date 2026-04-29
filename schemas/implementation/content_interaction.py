@@ -6,6 +6,7 @@ from pydantic import Field
 
 from schemas.implementation.common import AgentLabel, InteractionUnit, QuizItem, SchemaModel
 from schemas.implementation.implementation_spec import ImplementationSpec
+from schemas.implementation.orchestration_decision import RetryInstruction
 from schemas.implementation.requirement_mapping import RequirementMappingOutput
 from schemas.implementation.spec_intake import SpecIntakeOutput
 
@@ -20,6 +21,10 @@ class ContentInteractionInput(SchemaModel):
     implementation_spec: ImplementationSpec | None = Field(
         default=None,
         description="Runtime implementation configuration passed through the pipeline.",
+    )
+    retry_instruction: RetryInstruction | None = Field(
+        default=None,
+        description="Optional feedback-loop retry instruction for revising content and interaction output.",
     )
 
 

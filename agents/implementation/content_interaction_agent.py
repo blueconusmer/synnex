@@ -18,7 +18,7 @@ from schemas.implementation.content_interaction import (
     SemanticValidationSummary,
 )
 
-from agents.implementation.helpers import dump_model, load_prompt_text, make_label
+from agents.implementation.helpers import dump_model, dump_optional_model, load_prompt_text, make_label
 
 CANONICAL_QUIZ_TYPES = [
     "더 좋은 질문 고르기",
@@ -111,6 +111,12 @@ INTERACTION_RESULT_TYPES = {
     "next_step_guide",
     "display_content",
 }
+ORDERED_QUEST_V2_TYPES = [
+    "multiple_choice",
+    "situation_card",
+    "question_improvement",
+    "battle",
+]
 
 
 @dataclass
@@ -143,6 +149,7 @@ def run_content_interaction_agent(
         expected_total=expected_total,
         items_per_type=items_per_type,
         interaction_mode=interaction_mode,
+        implementation_spec=input_model.implementation_spec,
     )
     service_name = _resolve_service_name(input_model)
 
@@ -154,8 +161,10 @@ def run_content_interaction_agent(
         learning_goals=json.dumps(learning_dimensions, ensure_ascii=False),
         total_count=expected_total,
         items_per_type=items_per_type,
+        content_distribution=json.dumps(target_quiz_type_counts, ensure_ascii=False),
         interaction_mode=interaction_mode,
         interaction_mode_reason=interaction_mode_reason,
+        retry_instruction=dump_optional_model(input_model.retry_instruction),
     )
     output = llm_client.generate_json(
         prompt=prompt,
@@ -295,9 +304,16 @@ def _resolve_target_quiz_type_counts(
     expected_total: int,
     items_per_type: int,
     interaction_mode: str,
+    implementation_spec,
 ) -> dict[str, int]:
     if interaction_mode != "quiz":
         return {}
+    if implementation_spec and implementation_spec.content_distribution:
+        return {
+            quiz_type: count
+            for quiz_type, count in implementation_spec.content_distribution.items()
+            if count > 0
+        }
     if not content_types:
         return {}
     if len(content_types) == 1:
@@ -423,50 +439,96 @@ def _normalize_structural_contract(output: ContentInteractionOutput) -> None:
     ]
 
     for item in output.items:
-        if item.correct_choice not in item.choices:
-            item.choices.append(item.correct_choice)
-
-        for fallback in fallback_choices:
-            if len(item.choices) >= 3:
-                break
-            if fallback not in item.choices:
-                item.choices.append(fallback)
+        if _is_selection_quiz_type(item.quiz_type):
+            if item.correct_choice and item.correct_choice not in item.choices:
+                item.choices.append(item.correct_choice)
+            for fallback in fallback_choices:
+                if len(item.choices) >= 3:
+                    break
+                if fallback not in item.choices:
+                    item.choices.append(fallback)
+        else:
+            item.choices = []
 
         if item.quiz_type == "multiple_choice" and not item.difficulty:
             item.difficulty = "intro"
-        elif item.quiz_type == "question_improvement" and not item.difficulty:
+        elif item.quiz_type in {"question_improvement", "situation_card"} and not item.difficulty:
             item.difficulty = "main"
+        elif item.quiz_type == "battle" and not item.difficulty:
+            item.difficulty = "main_advanced"
 
         if not item.topic_context:
             item.topic_context = item.learning_dimension or "학습 맥락"
         if not item.original_question:
             item.original_question = item.question
+        if item.quiz_type == "situation_card" and not item.situation:
+            item.situation = item.question or item.topic_context
+        if item.quiz_type == "battle":
+            if not item.stage_level:
+                item.stage_level = "bronze"
+            if not item.ai_question:
+                item.ai_question = (
+                    "국어 수행평가 준비 중인데 비유 표현이 왜 사용되었는지 예시와 함께 설명해줘."
+                )
+            if not item.situation:
+                item.situation = item.question or item.topic_context
 
 
 def _synthesize_quiz_interaction_units(items: list[QuizItem]) -> list[InteractionUnit]:
     units: list[InteractionUnit] = []
     for item in items:
-        action_type = "free_text_input" if item.quiz_type == "question_improvement" else "multiple_choice"
+        action_type = (
+            "multiple_choice" if _is_selection_quiz_type(item.quiz_type) else "free_text_input"
+        )
+        learner_action = item.question
+        system_response = item.topic_context or item.learning_dimension
+        input_format = "free_text"
+        metadata: dict[str, Any] = {
+            "source_item_id": item.item_id,
+            "quiz_type": item.quiz_type,
+            "difficulty": item.difficulty,
+            "topic_context": item.topic_context,
+            "original_question": item.original_question,
+        }
+        if action_type == "multiple_choice":
+            input_format = "multiple_choice"
+            metadata.update(
+                {
+                    "choices": list(item.choices),
+                    "correct_choice": item.correct_choice,
+                }
+            )
+        if item.quiz_type == "situation_card":
+            learner_action = item.situation or item.question
+            system_response = item.situation or system_response
+            metadata["situation"] = item.situation
+        if item.quiz_type == "question_improvement":
+            learner_action = item.question or "원본 질문을 더 명확하게 다시 써 보세요."
+            system_response = item.original_question or system_response
+        if item.quiz_type == "battle":
+            learner_action = item.question or "AI보다 더 좋은 질문을 작성해 보세요."
+            system_response = item.situation or system_response
+            metadata.update(
+                {
+                    "situation": item.situation,
+                    "stage_level": item.stage_level,
+                    "ai_question": item.ai_question,
+                    "battle_rounds": 3,
+                    "battle_win_threshold": 2,
+                }
+            )
         action_unit = InteractionUnit(
             unit_id=f"{item.item_id}_action",
             interaction_type=action_type,
             title=item.title,
-            learner_action=item.question,
-            system_response=item.topic_context or item.learning_dimension,
-            input_format="free_text" if action_type == "free_text_input" else "multiple_choice",
+            learner_action=learner_action,
+            system_response=system_response,
+            input_format=input_format,
             feedback_rule=(
                 "사용자 응답 후 정답, 해설, 학습 포인트를 포함한 결과 피드백을 보여 준다."
             ),
             learning_dimension=item.learning_dimension,
-            metadata={
-                "source_item_id": item.item_id,
-                "quiz_type": item.quiz_type,
-                "choices": list(item.choices),
-                "correct_choice": item.correct_choice,
-                "difficulty": item.difficulty,
-                "topic_context": item.topic_context,
-                "original_question": item.original_question,
-            },
+            metadata=metadata,
         )
         feedback_unit = InteractionUnit(
             unit_id=f"{item.item_id}_feedback",
@@ -483,9 +545,31 @@ def _synthesize_quiz_interaction_units(items: list[QuizItem]) -> list[Interactio
                 "explanation": item.explanation,
                 "learning_point": item.learning_point,
                 "choices": list(item.choices),
+                "quiz_type": item.quiz_type,
+                "situation": item.situation,
+                "stage_level": item.stage_level,
+                "ai_question": item.ai_question,
             },
         )
         units.extend([action_unit, feedback_unit])
+
+        if item.quiz_type == "battle":
+            units.append(
+                InteractionUnit(
+                    unit_id=f"{item.item_id}_battle_final",
+                    interaction_type="score_summary",
+                    title=f"{item.title} 배틀 결과",
+                    learner_action="",
+                    system_response="배틀 승패와 보너스 점수를 요약해 보여 준다.",
+                    feedback_rule="배틀 종료 후 승패 요약과 다음 세션 결과 진입을 안내한다.",
+                    metadata={
+                        "source_item_id": item.item_id,
+                        "battle_rounds": 3,
+                        "battle_win_threshold": 2,
+                        "stage_level": item.stage_level,
+                    },
+                )
+            )
 
     summary_unit = InteractionUnit(
         unit_id="session_summary",
@@ -517,8 +601,16 @@ def _build_quiz_evaluation_rules(
         merged.setdefault("mode", "quiz")
         merged.setdefault("expected_total", expected_total)
         merged.setdefault("feedback_type", "feedback")
+        merged.setdefault(
+            "feedback_types",
+            {
+                "feedback": "정답/해설/결과에 대한 일반 피드백",
+                "coaching_feedback": "사용자 자유 입력을 바탕으로 개선 방향을 제안하는 코칭형 피드백",
+            },
+        )
         return merged
-    return {
+    quiz_types = {item.quiz_type for item in output.items}
+    rules = {
         "mode": "quiz",
         "expected_total": expected_total,
         "answer_key_mode": "item_id_to_correct_choice",
@@ -528,7 +620,37 @@ def _build_quiz_evaluation_rules(
         },
         "feedback_type": "feedback",
         "feedback_policy": "정답, 해설, 학습 포인트를 각 문항 결과에서 제공한다.",
+        "feedback_types": {
+            "feedback": "정답/해설/결과에 대한 일반 피드백",
+            "coaching_feedback": "사용자 자유 입력을 바탕으로 개선 방향을 제안하는 코칭형 피드백",
+        },
     }
+    if "battle" in quiz_types:
+        rules.update(
+            {
+                "battle_rules": {
+                    "max_rounds": 3,
+                    "win_threshold": 2,
+                    "tie_winner": "ai",
+                    "win_score": 20,
+                    "loss_or_tie_score": 5,
+                    "perfect_bonus": 15,
+                    "match_bonus": 20,
+                },
+                "combo_rules": {
+                    "scope": "Q2~Q5",
+                    "combo_2_bonus": 10,
+                    "combo_3_or_more_bonus": 15,
+                },
+                "grade_rules": {
+                    "bronze": {"min_score": 0, "max_score": 99},
+                    "silver": {"min_score": 100, "max_score": 299},
+                    "gold": {"min_score": 300, "max_score": 599},
+                    "platinum": {"min_score": 600, "max_score": None},
+                },
+            }
+        )
+    return rules
 
 
 def _build_non_quiz_evaluation_rules(
@@ -576,6 +698,34 @@ def _sort_items_for_service_flow(
     items: list[QuizItem],
     content_types: list[str],
 ) -> list[QuizItem]:
+    if set(content_types) == set(ORDERED_QUEST_V2_TYPES):
+        situation_card_count = 0
+        for item in items:
+            if item.quiz_type == "multiple_choice":
+                item.difficulty = "intro"
+            elif item.quiz_type == "question_improvement":
+                item.difficulty = "main"
+            elif item.quiz_type == "battle":
+                item.difficulty = "main_advanced"
+            elif item.quiz_type == "situation_card":
+                situation_card_count += 1
+                item.difficulty = "main" if situation_card_count == 1 else "main_advanced"
+
+        def v2_order(item: QuizItem) -> tuple[int, str]:
+            if item.quiz_type == "multiple_choice":
+                return (0, item.item_id)
+            if item.quiz_type == "situation_card" and item.difficulty == "main":
+                return (1, item.item_id)
+            if item.quiz_type == "question_improvement":
+                return (2, item.item_id)
+            if item.quiz_type == "situation_card" and item.difficulty == "main_advanced":
+                return (3, item.item_id)
+            if item.quiz_type == "battle":
+                return (4, item.item_id)
+            return (99, item.item_id)
+
+        return sorted(items, key=v2_order)
+
     if set(content_types) != {"multiple_choice", "question_improvement"}:
         return items
 
@@ -1159,8 +1309,6 @@ def _validate_content_contract(
         raise ValueError(f"Expected {expected_total} quiz items, got {len(output.items)}.")
 
     for item in output.items:
-        if len(item.choices) < 3:
-            raise ValueError(f"Quiz item {item.item_id} must have at least 3 choices.")
         if content_types and item.quiz_type not in content_types:
             raise ValueError(
                 f"Quiz item {item.item_id} uses unsupported quiz_type {item.quiz_type!r}."
@@ -1170,3 +1318,49 @@ def _validate_content_contract(
                 f"Quiz item {item.item_id} uses unsupported learning_dimension "
                 f"{item.learning_dimension!r}."
             )
+        _validate_item_shape(item)
+
+
+def _validate_item_shape(item: QuizItem) -> None:
+    if _is_selection_quiz_type(item.quiz_type):
+        if len(item.choices) < 3:
+            raise ValueError(f"Quiz item {item.item_id} must have at least 3 choices.")
+        if not item.correct_choice or item.correct_choice not in item.choices:
+            raise ValueError(
+                f"Quiz item {item.item_id} must include correct_choice inside choices."
+            )
+        return
+
+    if item.quiz_type == "situation_card":
+        if not (item.situation or item.question):
+            raise ValueError(
+                f"Situation-card item {item.item_id} must include situation or question."
+            )
+        return
+
+    if item.quiz_type == "question_improvement":
+        if not item.original_question:
+            raise ValueError(
+                f"Question-improvement item {item.item_id} must include original_question."
+            )
+        return
+
+    if item.quiz_type == "battle":
+        if not item.ai_question:
+            raise ValueError(f"Battle item {item.item_id} must include ai_question.")
+        if not item.stage_level:
+            raise ValueError(f"Battle item {item.item_id} must include stage_level.")
+        if not (item.situation or item.question):
+            raise ValueError(
+                f"Battle item {item.item_id} must include situation or question."
+            )
+
+
+def _is_selection_quiz_type(quiz_type: str) -> bool:
+    return quiz_type in {
+        "multiple_choice",
+        "질문에서 빠진 요소 찾기",
+        "더 좋은 질문 고르기",
+        "모호한 질문 고치기",
+        "상황에 맞는 질문 만들기",
+    }
