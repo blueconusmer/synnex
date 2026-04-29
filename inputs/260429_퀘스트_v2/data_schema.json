@@ -1,0 +1,297 @@
+{
+  "_meta": {
+    "schema_version": "2.0",
+    "service_name": "Question Quest",
+    "description": "질문력 강화 퀘스트 서비스의 핵심 데이터 구조 정의. 모든 필드는 constitution.md의 학습 목표 및 루브릭과 정합적이다.",
+    "author": "PM Agent",
+    "base": "팀 인터뷰 합의 사항 (2026-04-28)"
+  },
+
+  "definitions": {
+
+    "Quest": {
+      "description": "사용자가 수행하는 학습 과제 단위. 유형에 따라 객관식 / 상황카드형 / 개선형 / 배틀로 구성된다.",
+      "fields": {
+        "quest_id": { "type": "string", "required": true, "example": "mc_001" },
+        "quest_type": {
+          "type": "enum",
+          "values": ["multiple_choice", "situation_card", "question_improvement", "battle"],
+          "required": true,
+          "description": "퀘스트 유형. multiple_choice=Q1, situation_card=Q2·Q4, question_improvement=Q3, battle=Q5"
+        },
+        "difficulty": {
+          "type": "enum",
+          "values": ["intro", "main", "main_advanced"],
+          "required": true,
+          "description": "intro=Q1, main=Q2·Q3, main_advanced=Q4·Q5"
+        },
+        "stage_level": {
+          "type": "enum",
+          "values": ["bronze", "silver", "gold", "platinum"],
+          "required": true,
+          "description": "이 퀘스트가 속한 스테이지. AI 배틀 상대 질문 수준 결정에 사용됨."
+        },
+        "topic_context": { "type": "string", "required": true, "example": "국어 비유 표현 학습" },
+        "situation": {
+          "type": "string",
+          "required": false,
+          "description": "상황 카드형·개선형 퀘스트에서 사용자에게 주어지는 상황 설명. multiple_choice는 null.",
+          "example": "너는 국어 수행평가 준비 중이고 '비유 표현'이 뭔지 이해가 안 된다."
+        },
+        "original_question": {
+          "type": "string",
+          "required": false,
+          "description": "개선형 퀘스트에서 사용자가 다듬을 원본 모호한 질문. 다른 유형은 null.",
+          "example": "비유가 뭔지 모르겠어"
+        },
+        "options": {
+          "type": "array<string>",
+          "required": false,
+          "description": "객관식 선택지 4개. multiple_choice 유형만 존재.",
+          "example": ["비유 알려줘", "국어 숙제인데 '내 마음은 호수요'가 왜 비유인지 예시와 함께 설명해줘", "비유 예시 좀", "비유 어떻게 해"]
+        },
+        "correct_option_index": {
+          "type": "integer",
+          "required": false,
+          "description": "객관식 정답 인덱스 (0부터 시작). multiple_choice 유형만 존재.",
+          "example": 1
+        },
+        "explanation": {
+          "type": "string",
+          "required": false,
+          "description": "객관식 정답 해설. multiple_choice 유형만 존재.",
+          "example": "이 선택지가 가장 좋아요. 무엇을, 왜, 어떻게가 모두 들어있어요."
+        },
+        "ai_question": {
+          "type": "string",
+          "required": false,
+          "description": "배틀 퀘스트에서 AI가 미리 만들어둔 질문. stage_level에 따라 수준이 다름. battle 유형만 존재.",
+          "example": "국어 수행평가 준비 중인데 '내 마음은 호수요'에서 비유가 사용된 이유를 예시와 함께 설명해줘."
+        }
+      }
+    },
+
+    "QuestPool": {
+      "description": "유형별 퀘스트 풀. 각 유형당 10개, 총 40개.",
+      "fields": {
+        "multiple_choice": { "type": "array<Quest>", "min_length": 10, "max_length": 10 },
+        "situation_card": { "type": "array<Quest>", "min_length": 10, "max_length": 10 },
+        "question_improvement": { "type": "array<Quest>", "min_length": 10, "max_length": 10 },
+        "battle": { "type": "array<Quest>", "min_length": 10, "max_length": 10 }
+      }
+    },
+
+    "Session": {
+      "description": "사용자의 한 학습 세션. 5개 퀘스트로 구성 [Q1, Q2, Q3, Q4, Q5].",
+      "fields": {
+        "session_id": { "type": "string", "required": true, "example": "session_001" },
+        "user_id": { "type": "string", "required": true },
+        "quest_sequence": {
+          "type": "array<string>",
+          "required": true,
+          "description": "이 세션의 퀘스트 ID 목록. 순서 고정: [multiple_choice, situation_card, question_improvement, situation_card_advanced, battle]",
+          "min_length": 5,
+          "max_length": 5
+        },
+        "session_status": {
+          "type": "enum",
+          "values": ["in_progress", "completed"],
+          "required": true
+        },
+        "current_quest_index": {
+          "type": "integer",
+          "required": true,
+          "description": "현재 진행 중인 퀘스트 인덱스 (0~4). 배틀은 별도로 battle_state로 관리.",
+          "default": 0
+        },
+        "session_score": { "type": "integer", "required": true, "default": 0 },
+        "combo_count": {
+          "type": "integer",
+          "required": true,
+          "description": "Q2~Q5에서 연속 양호 이상 또는 배틀 라운드 승리 횟수. 미흡 또는 패배 시 0으로 초기화.",
+          "default": 0
+        },
+        "combo_bonus": {
+          "type": "integer",
+          "required": true,
+          "description": "세션 완료 시 확정되는 콤보 보너스 점수. 2콤보=+10, 3콤보 이상=+15.",
+          "default": 0
+        },
+        "battle_state": {
+          "type": "BattleState",
+          "required": false,
+          "description": "Q5 배틀 진행 상태. current_quest_index가 4일 때만 존재."
+        },
+        "started_at": { "type": "datetime", "required": true },
+        "completed_at": { "type": "datetime", "required": false }
+      }
+    },
+
+    "BattleState": {
+      "description": "Q5 질문 배틀의 3라운드 진행 상태.",
+      "fields": {
+        "current_round": {
+          "type": "integer",
+          "required": true,
+          "description": "현재 라운드 (1~3)",
+          "default": 1
+        },
+        "user_wins": { "type": "integer", "required": true, "default": 0 },
+        "ai_wins": { "type": "integer", "required": true, "default": 0 },
+        "round_results": {
+          "type": "array<RoundResult>",
+          "required": true,
+          "description": "완료된 라운드 결과 목록",
+          "default": []
+        },
+        "battle_status": {
+          "type": "enum",
+          "values": ["in_progress", "user_won", "ai_won"],
+          "required": true,
+          "default": "in_progress"
+        },
+        "is_perfect": {
+          "type": "boolean",
+          "required": true,
+          "description": "3라운드 전승 여부. user_wins=3일 때 true.",
+          "default": false
+        }
+      }
+    },
+
+    "RoundResult": {
+      "description": "배틀 한 라운드의 결과",
+      "fields": {
+        "round_number": { "type": "integer", "required": true },
+        "user_question": { "type": "string", "required": true },
+        "ai_question": { "type": "string", "required": true },
+        "user_rubric": { "type": "RubricResult", "required": true },
+        "ai_rubric": { "type": "RubricResult", "required": true },
+        "round_winner": {
+          "type": "enum",
+          "values": ["user", "ai"],
+          "required": true,
+          "description": "루브릭 합산 점수가 높은 쪽. 동점은 ai 승리."
+        },
+        "earned_score": {
+          "type": "integer",
+          "required": true,
+          "description": "이 라운드에서 획득한 점수. 승리=+20, 패배/무승부=+5."
+        }
+      }
+    },
+
+    "Answer": {
+      "description": "사용자가 한 퀘스트에 대해 제출한 답변과 평가 결과.",
+      "fields": {
+        "answer_id": { "type": "string", "required": true },
+        "session_id": { "type": "string", "required": true },
+        "quest_id": { "type": "string", "required": true },
+        "user_response": {
+          "type": "string | integer",
+          "required": true,
+          "description": "객관식=선택 인덱스(integer), 그 외=작성한 질문 텍스트(string)"
+        },
+        "evaluation": { "type": "Evaluation", "required": true },
+        "earned_score": {
+          "type": "integer",
+          "required": true,
+          "description": "이 답변으로 획득한 점수 (배틀은 라운드별로 RoundResult에서 관리)"
+        },
+        "submitted_at": { "type": "datetime", "required": true }
+      }
+    },
+
+    "Evaluation": {
+      "description": "답변 평가 결과. 퀘스트 유형에 따라 evaluation_type이 달라진다.",
+      "fields": {
+        "evaluation_type": {
+          "type": "enum",
+          "values": ["correctness", "rubric"],
+          "required": true,
+          "description": "multiple_choice=correctness, 그 외=rubric"
+        },
+        "is_correct": {
+          "type": "boolean",
+          "required": false,
+          "description": "객관식 정답 여부. evaluation_type=correctness일 때만 존재."
+        },
+        "rubric_result": {
+          "type": "RubricResult",
+          "required": false,
+          "description": "루브릭 평가 결과. evaluation_type=rubric일 때만 존재."
+        },
+        "feedback": {
+          "type": "string",
+          "required": true,
+          "description": "사용자에게 표시되는 피드백. 한두 문장 이내, 150자 이하.",
+          "max_length": 150
+        }
+      }
+    },
+
+    "RubricResult": {
+      "description": "루브릭 3기준 병렬 평가 결과. constitution.md ⑥과 정합.",
+      "fields": {
+        "specificity": { "type": "enum", "values": ["excellent", "good", "needs_work"], "required": true },
+        "context": { "type": "enum", "values": ["excellent", "good", "needs_work"], "required": true },
+        "purpose": { "type": "enum", "values": ["excellent", "good", "needs_work"], "required": true },
+        "overall": {
+          "type": "enum",
+          "values": ["excellent", "good", "needs_work"],
+          "required": true,
+          "description": "종합 판정. 3개 모두 excellent→excellent, 1개 이상 needs_work→needs_work, 그 외→good"
+        },
+        "rubric_score": {
+          "type": "integer",
+          "required": true,
+          "description": "배틀 비교용 루브릭 합산 점수. excellent=2, good=1, needs_work=0. 범위 0~6.",
+          "min": 0,
+          "max": 6
+        }
+      }
+    },
+
+    "UserProgress": {
+      "description": "사용자의 누적 점수와 현재 등급. 점수는 단조 증가.",
+      "fields": {
+        "user_id": { "type": "string", "required": true },
+        "cumulative_score": { "type": "integer", "required": true, "default": 0 },
+        "current_grade": {
+          "type": "enum",
+          "values": ["bronze", "silver", "gold", "platinum"],
+          "required": true,
+          "default": "bronze"
+        },
+        "completed_session_count": { "type": "integer", "required": true, "default": 0 },
+        "completed_quest_ids": {
+          "type": "array<string>",
+          "required": true,
+          "description": "이미 푼 퀘스트 ID 목록. 풀 선택 시 우선 제외에 사용.",
+          "default": []
+        }
+      }
+    },
+
+    "GradeThreshold": {
+      "description": "등급 임계점. constitution.md ⑦-5와 정합.",
+      "values": {
+        "bronze":   { "min_score": 0,   "max_score": 99  },
+        "silver":   { "min_score": 100, "max_score": 299 },
+        "gold":     { "min_score": 300, "max_score": 599 },
+        "platinum": { "min_score": 600, "max_score": null }
+      }
+    }
+  },
+
+  "constraints": {
+    "session_composition": "한 세션은 반드시 [multiple_choice×1, situation_card×1, question_improvement×1, situation_card×1, battle×1] 순서로 구성된다.",
+    "quest_pool_size": "각 유형별 10개, 총 40개 풀을 유지한다.",
+    "score_monotonicity": "cumulative_score는 단조 증가한다. 어떤 경우에도 감소하지 않는다.",
+    "battle_rounds": "배틀은 최대 3라운드이며, 2승 선취 시 조기 종료된다.",
+    "battle_tie": "배틀 라운드 동점(rubric_score 동점)은 AI 승리로 처리된다.",
+    "combo_scope": "콤보는 Q2(index 1)부터 Q5(index 4)까지만 적용된다. Q1은 콤보에 영향을 주지 않는다.",
+    "feedback_length": "Evaluation.feedback은 150자 이하로 제한한다.",
+    "minimum_score": "어떤 퀘스트도 제출하면 최소 +5점을 부여한다. 사용자가 위축되지 않도록 한다."
+  }
+}

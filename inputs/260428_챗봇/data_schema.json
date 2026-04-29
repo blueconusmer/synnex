@@ -1,0 +1,67 @@
+{
+  "_meta": {
+    "schema_version": "1.0",
+    "service_name": "Question Coaching Chatbot",
+    "description": "MVP의 기능을 구현하기 위해 필요한 입력·출력 데이터 구조와 필드 규격을 정의한 문서",
+    "source": "김현아 님 기획서 v2 5.4.1 추출",
+    "author": "PM Agent"
+  },
+
+  "input": {
+    "user_question": {
+      "type": "string",
+      "required": true,
+      "description": "사용자가 입력한 원래 질문",
+      "example": "국어 수행평가 질문을 어떻게 써야 할지 모르겠어요.",
+      "source": "User Flow - 질문 입력 단계"
+    }
+  },
+
+  "output": {
+    "mode": {
+      "type": "string",
+      "required": true,
+      "allowed_values": [
+        "need_specificity",
+        "need_context",
+        "need_purpose",
+        "completed"
+      ],
+      "description": "루브릭 판단 결과에 따라 현재 사용자 상태와 다음 서비스 동작을 나타내는 값. 사용자에게 노출되는 상태만 포함하며 내부 이동 상태는 제외.",
+      "example": "need_specificity",
+      "source": "Constitution ⑦ 루브릭 기반 서비스 플로우"
+    },
+    "diagnosis": {
+      "type": "string",
+      "required": true,
+      "description": "사용자 입력에서 부족한 점에 대한 진단",
+      "example": "질문하려는 주제나 대상이 아직 분명하지 않아요.",
+      "source": "User Flow - 질문 진단 단계"
+    },
+    "follow_up_question": {
+      "type": "string",
+      "required": false,
+      "description": "부족한 요소를 보완하도록 유도하는 되묻기. mode가 completed일 때는 null.",
+      "example": "어떤 글이나 개념에 대해 질문하고 싶은가요?",
+      "source": "User Flow - 보완 유도 단계"
+    },
+    "improved_question": {
+      "type": "string",
+      "required": false,
+      "description": "루브릭 기준을 충족한 개선 질문 예시. mode가 completed일 때만 값 있음.",
+      "example": "'내 마음은 호수요'에서 '호수'가 어떤 점에서 비유 표현인지 설명해 주세요.",
+      "source": "User Flow - 목표 달성 단계"
+    },
+    "next_action": {
+      "type": "string",
+      "required": true,
+      "allowed_values": [
+        "ask_more",
+        "show_result"
+      ],
+      "description": "프론트엔드가 다음에 수행해야 할 행동. mode와 1:1 대응되며 구현 오류 방지 목적으로 명시.",
+      "example": "ask_more",
+      "source": "User Flow - 다음 행동 결정 단계"
+    }
+  }
+}
