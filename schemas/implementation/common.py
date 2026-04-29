@@ -39,15 +39,33 @@ class QuizItem(SchemaModel):
         default="",
         description="Optional topic or learning context shown with the item.",
     )
+    situation: str = Field(
+        default="",
+        description="Optional situation-card prompt or scenario shown to the learner.",
+    )
     original_question: str = Field(
         default="",
         description="Optional original learner question used by Quest-style flows.",
     )
+    stage_level: str = Field(
+        default="",
+        description="Optional stage or league level used by battle-style quest flows.",
+    )
     question: str = Field(description="Question text shown to the learner.")
-    choices: list[str] = Field(description="Multiple-choice options.")
-    correct_choice: str = Field(description="Correct answer string from the choices.")
+    choices: list[str] = Field(
+        default_factory=list,
+        description="Optional multiple-choice options for selection-based quiz items.",
+    )
+    correct_choice: str = Field(
+        default="",
+        description="Correct answer string from the choices when the item is selection-based.",
+    )
     explanation: str = Field(description="Why the correct choice is correct.")
     learning_point: str = Field(description="Educational takeaway from the item.")
+    ai_question: str = Field(
+        default="",
+        description="Optional pre-authored AI rival question used by battle-style quest flows.",
+    )
 
 
 class InteractionUnit(SchemaModel):
