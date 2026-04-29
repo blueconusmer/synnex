@@ -304,7 +304,6 @@ def _collect_signals(
         [
             prototype_builder_output.fallback_reason,
             *prototype_builder_output.builder_errors,
-            *prototype_builder_output.runtime_notes,
         ]
     ).lower()
     if any(

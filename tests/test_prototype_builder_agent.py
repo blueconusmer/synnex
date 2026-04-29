@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from agents.implementation.prototype_builder_agent import run_prototype_builder_agent
@@ -13,16 +14,25 @@ from tests.fakes import FakeLLMClient
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = REPO_ROOT / "inputs" / "mock_planning_outputs" / "question_quest_v0"
+QUEST_V2_PACKAGE_DIR = REPO_ROOT / "inputs" / "260429_퀘스트_v2"
 
 
-def _build_package_content_output(fake: FakeLLMClient, service_name: str) -> ContentInteractionOutput:
+def _build_package_content_output(
+    fake: FakeLLMClient,
+    service_name: str,
+    *,
+    content_types: list[str] | None = None,
+    total_count: int = 3,
+    items_per_type: int = 2,
+) -> ContentInteractionOutput:
+    content_types = content_types or ["multiple_choice", "question_improvement"]
     prompt = "\n".join(
         [
             f"- service_name: {service_name}",
-            '- content_types: ["multiple_choice", "question_improvement"]',
-            '- learning_goals: ["구체성", "맥락성", "목적성"]',
-            "- total_count: 3",
-            "- items_per_type: 2",
+            f"- content_types: {json.dumps(content_types, ensure_ascii=False)}",
+            f"- learning_goals: {json.dumps(['구체성', '맥락성', '목적성'], ensure_ascii=False)}",
+            f"- total_count: {total_count}",
+            f"- items_per_type: {items_per_type}",
         ]
     )
     return fake.generate_json(prompt=prompt, response_model=ContentInteractionOutput)
@@ -95,6 +105,56 @@ def test_prototype_builder_materializes_llm_generated_app_from_planning_package(
     assert "interaction_units(primary contract)" in prompt
     assert '"interaction_mode": "quiz"' in prompt or "interaction_mode:\nquiz" in prompt
     assert "primary contract" in prompt
+
+
+def test_prototype_builder_materializes_llm_generated_v2_app_without_fallback() -> None:
+    fake = FakeLLMClient()
+    package = load_planning_package(QUEST_V2_PACKAGE_DIR)
+    spec = planning_package_to_implementation_spec(package, QUEST_V2_PACKAGE_DIR)
+
+    output = run_prototype_builder_agent(
+        PrototypeBuilderInput(
+            spec_intake_output=fake.generate_json(prompt="", response_model=SpecIntakeOutput),
+            requirement_mapping_output=fake.generate_json(
+                prompt="",
+                response_model=RequirementMappingOutput,
+            ),
+            content_interaction_output=_build_package_content_output(
+                fake,
+                spec.service_name,
+                content_types=[
+                    "multiple_choice",
+                    "situation_card",
+                    "question_improvement",
+                    "situation_card",
+                    "battle",
+                ],
+                total_count=5,
+                items_per_type=1,
+            ),
+            implementation_spec=spec,
+        ),
+        fake,
+    )
+
+    source = output.generated_files[0].content
+    prompt = fake.prompts[-1]
+
+    assert output.generation_mode == "llm_generated"
+    assert output.fallback_used is False
+    assert "LLM_GENERATED_APP_MARKER" in source
+    assert "current_screen" in source
+    assert "SCREEN_BATTLE" in source
+    assert "SCREEN_BATTLE_RESULT" in source
+    assert "SCREEN_BATTLE_COMPLETED" in source
+    assert "SCREEN_SESSION_RESULT" in source
+    assert "st.session_state.current_screen = SCREEN_BATTLE_RESULT" in source
+    assert "st.session_state.current_screen = SCREEN_BATTLE_COMPLETED" in source
+    assert "st.session_state.current_screen = SCREEN_SESSION_RESULT" in source
+    assert "builder_runtime_contract" in prompt
+    assert "requires_battle: true" in prompt
+    assert "required_screen_constants" in prompt
+    assert "multiple_choice → situation_card → question_improvement → situation_card → battle" in prompt
 
 
 def test_prototype_builder_uses_fallback_when_llm_call_fails() -> None:
@@ -185,6 +245,7 @@ st.write(data)
     assert output.generation_mode == "fallback_template"
     assert output.fallback_used is True
     assert "LLM_OUTPUT_INVALID" in output.builder_errors
+    assert "ROOT_FIRST_CONTENT_LOADING" in output.builder_errors
     assert "outputs/{content_filename}" in output.fallback_reason
 
 
@@ -199,8 +260,12 @@ APP_DIR = Path(__file__).resolve().parent
 OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
 FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
 CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
+SCREEN_START = "S0"
+SCREEN_MULTIPLE_CHOICE = "S1"
 SCREEN_MULTIPLE_CHOICE_RESULT = "S2"
+SCREEN_IMPROVEMENT = "S3"
 SCREEN_IMPROVEMENT_RESULT = "S4"
+SCREEN_SESSION_RESULT = "S5"
 current_screen = "S3"
 
 
@@ -216,6 +281,7 @@ def evaluate_improvement_question(user_response: str, original_question: str, to
 
 
 def api_session_start() -> dict[str, Any]:
+    st.session_state.current_screen = SCREEN_MULTIPLE_CHOICE
     return {"quests": []}
 
 
@@ -235,6 +301,7 @@ def api_quest_submit(user_response: Any) -> dict[str, Any]:
         quest["topic_context"],
         quest["desired_answer_form"],
     )
+    st.session_state.current_screen = SCREEN_MULTIPLE_CHOICE_RESULT
     return {"ok": True}
 
 
@@ -247,15 +314,22 @@ def render_multiple_choice_screen() -> None:
 
 
 def render_multiple_choice_result() -> None:
+    st.session_state.current_screen = SCREEN_IMPROVEMENT
     st.write("mc-result")
 
 
 def render_improvement_screen() -> None:
+    st.session_state.current_screen = SCREEN_IMPROVEMENT_RESULT
     st.write("improve")
 
 
 def render_improvement_result() -> None:
+    st.session_state.current_screen = SCREEN_SESSION_RESULT
     st.write("improve-result")
+
+
+def render_session_result() -> None:
+    st.write("session-result")
 
 
 def main() -> None:
@@ -286,6 +360,7 @@ main()
     assert output.generation_mode == "fallback_template"
     assert output.fallback_used is True
     assert "LLM_OUTPUT_INVALID" in output.builder_errors
+    assert "CONTRACT_MISSING_MARKER" in output.builder_errors
     assert "evaluate_improvement_question call passes 4 positional args" in output.fallback_reason
 
 
@@ -300,8 +375,12 @@ APP_DIR = Path(__file__).resolve().parent
 OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
 FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
 CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
+SCREEN_START = "S0"
+SCREEN_MULTIPLE_CHOICE = "S1"
 SCREEN_MULTIPLE_CHOICE_RESULT = "S2"
+SCREEN_IMPROVEMENT = "S3"
 SCREEN_IMPROVEMENT_RESULT = "S4"
+SCREEN_SESSION_RESULT = "S5"
 current_screen = "S1"
 
 
@@ -313,6 +392,7 @@ def resolve_content_path() -> Path | None:
 
 
 def api_session_start() -> dict[str, Any]:
+    st.session_state.current_screen = SCREEN_MULTIPLE_CHOICE
     return {"quests": []}
 
 
@@ -335,6 +415,7 @@ def render_multiple_choice_screen() -> None:
 
 
 def render_multiple_choice_result() -> None:
+    st.session_state.current_screen = SCREEN_IMPROVEMENT
     st.write("result")
 
 
@@ -343,7 +424,12 @@ def render_improvement_screen() -> None:
 
 
 def render_improvement_result() -> None:
+    st.session_state.current_screen = SCREEN_SESSION_RESULT
     st.write("feedback")
+
+
+def render_session_result() -> None:
+    st.write("session-result")
 
 
 def main() -> None:
@@ -374,7 +460,109 @@ main()
     assert output.generation_mode == "fallback_template"
     assert output.fallback_used is True
     assert "LLM_OUTPUT_INVALID" in output.builder_errors
+    assert "RAW_FIELD_ACCESS" in output.builder_errors
     assert "normalized quest fields only" in output.fallback_reason
+
+
+def test_prototype_builder_rejects_v2_source_without_battle_flow() -> None:
+    missing_battle_source = '''from pathlib import Path
+from typing import Any
+
+import streamlit as st
+
+CONTENT_FILENAME = "260429_퀘스트_contents.json"
+APP_DIR = Path(__file__).resolve().parent
+OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
+FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
+CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
+SCREEN_START = "S0"
+SCREEN_MULTIPLE_CHOICE = "S1"
+SCREEN_MULTIPLE_CHOICE_RESULT = "S2"
+SCREEN_IMPROVEMENT = "S3"
+SCREEN_IMPROVEMENT_RESULT = "S4"
+SCREEN_SESSION_RESULT = "S8"
+
+
+def resolve_content_path() -> Path | None:
+    for candidate in CONTENT_CANDIDATE_PATHS:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def api_session_start() -> dict[str, Any]:
+    st.session_state.current_screen = SCREEN_MULTIPLE_CHOICE
+    return {"quests": []}
+
+
+def api_quest_submit(user_response: Any) -> dict[str, Any]:
+    st.session_state.current_screen = SCREEN_MULTIPLE_CHOICE_RESULT
+    return {"ok": True}
+
+
+def api_session_result() -> dict[str, Any]:
+    st.session_state.current_screen = SCREEN_SESSION_RESULT
+    return {}
+
+
+def render_multiple_choice_screen() -> None:
+    st.write("mc")
+
+
+def render_multiple_choice_result() -> None:
+    st.write("mc-result")
+
+
+def render_improvement_screen() -> None:
+    st.write("improve")
+
+
+def render_improvement_result() -> None:
+    st.session_state.current_screen = SCREEN_SESSION_RESULT
+    st.write("improve-result")
+
+
+def main() -> None:
+    if resolve_content_path() is None:
+        st.warning("콘텐츠 파일을 찾지 못했습니다.")
+    st.rerun()
+
+
+main()
+'''
+    fake = FakeLLMClient(app_source=missing_battle_source)
+    package = load_planning_package(QUEST_V2_PACKAGE_DIR)
+    spec = planning_package_to_implementation_spec(package, QUEST_V2_PACKAGE_DIR)
+
+    output = run_prototype_builder_agent(
+        PrototypeBuilderInput(
+            spec_intake_output=fake.generate_json(prompt="", response_model=SpecIntakeOutput),
+            requirement_mapping_output=fake.generate_json(
+                prompt="",
+                response_model=RequirementMappingOutput,
+            ),
+            content_interaction_output=_build_package_content_output(
+                fake,
+                spec.service_name,
+                content_types=[
+                    "multiple_choice",
+                    "situation_card",
+                    "question_improvement",
+                    "situation_card",
+                    "battle",
+                ],
+                total_count=5,
+                items_per_type=1,
+            ),
+            implementation_spec=spec,
+        ),
+        fake,
+    )
+
+    assert output.generation_mode == "fallback_template"
+    assert output.fallback_used is True
+    assert "BATTLE_FLOW_MISSING" in output.builder_errors
+    assert "SCREEN_BATTLE" in output.fallback_reason
 
 
 def test_prototype_builder_returns_unsupported_output_for_react() -> None:

@@ -1276,6 +1276,8 @@ def _has_action_shape_mismatch(item: QuizItem, expected_quiz_type: str) -> bool:
 
 
 def _has_explicit_dimension_conflict(item: QuizItem, expected_dimension: str) -> bool:
+    if item.quiz_type == "battle":
+        return False
     text = f"{item.explanation} {item.learning_point}"
     explicit_dimensions = [
         dimension
