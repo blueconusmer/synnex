@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from clients.env import load_env_file
-from clients.llm import OpenAICompatibleClient
+from clients.llm import FallbackLLMClient
 from loaders import load_input_intake
 from orchestrator.pipeline import ImplementationPipeline
 from schemas.planning_package import ValidationStatus
@@ -59,7 +59,7 @@ def main() -> int:
                 print(f"- {issue.code}: {issue.message}")
             return 1
         implementation_spec = input_intake_result.implementation_spec
-    llm_client = OpenAICompatibleClient.from_env()
+    llm_client = FallbackLLMClient.from_env()
     pipeline = ImplementationPipeline(
         llm_client=llm_client,
         spec_path=input_path,

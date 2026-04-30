@@ -63,11 +63,30 @@ cp .env.example .env
 
 ## 환경변수
 
-runtime 실행은 OpenAI-compatible LLM client를 사용한다.
+runtime 실행은 provider-priority LLM client를 사용한다.
+
+우선순위는 아래와 같다.
+
+1. Gemini API (`GEMINI_API_KEY`)
+2. Upstage API (`UPSTAGE_API_KEY`)
+
+앞선 provider가 실패하면 다음 provider로 자동 failover 한다.
+
+### Gemini 예시
+
+```bash
+export GEMINI_API_KEY="..."
+export GEMINI_MODEL="gemini-3.1-pro"  # internal alias -> gemini-3.1-pro-preview
+export GEMINI_BASE_URL="https://generativelanguage.googleapis.com/v1beta"  # optional
+```
+
+runtime 기본 경로에서는 일반 OpenAI-compatible provider를 더 이상 사용하지 않는다.
+Upstage는 내부적으로 OpenAI-compatible API 형식을 사용하지만, runtime 우선순위에서는
+명시적으로 `2순위 Upstage`로 취급한다.
 
 ### Upstage Solar Pro2 예시
 
-기본 권장 설정은 Upstage다. `UPSTAGE_API_KEY`가 있으면 client가 Upstage 경로를 우선 사용한다.
+`UPSTAGE_API_KEY`가 있으면 Upstage가 3순위 fallback provider로 추가된다.
 
 ```bash
 export UPSTAGE_API_KEY="..."
