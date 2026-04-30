@@ -52,6 +52,9 @@ prompt_spec:
 builder_runtime_contract:
 {builder_runtime_contract}
 
+validated_app_flow_plan:
+{validated_app_flow_plan}
+
 반드시 아래를 지켜라:
 - `target_framework == "streamlit"`일 때만 app.py를 생성한다.
 - app은 `outputs/{content_filename}`을 우선 읽고, 루트 `{content_filename}`을 fallback으로 읽어야 한다.
@@ -64,6 +67,8 @@ builder_runtime_contract:
 - 금지: `CONTENT_PATH = "{content_filename}"`를 먼저 검사한 뒤 `outputs/{content_filename}`를 fallback으로 읽는 root-first 로딩 구조.
 - app.py 실행 시 planning package 파일(interface_spec.md, state_machine.md, data_schema.json, prompt_spec.md, constitution.md)을 다시 읽으면 안 된다.
 - `interaction_units`는 화면 흐름 생성을 위한 primary contract다.
+- `validated_app_flow_plan`은 이미 검증을 통과한 intermediate plan이다. app.py는 이 plan을 다시 해석하거나 변경하지 말고 그대로 materialize해야 한다.
+- `validated_app_flow_plan.screens`, `validated_app_flow_plan.transitions`, `validated_app_flow_plan.required_functions`, `validated_app_flow_plan.content_runtime_source`를 소스에 직접 반영하라.
 - 화면 흐름은 `interaction_units`의 순서, `interaction_type`, `next_step`, `metadata`를 기준으로 구성한다.
 - `interaction_mode`는 secondary hint only다. quiz/coaching 전용 deterministic template을 새로 만들지 말고, `interaction_units` 계약을 우선 해석하라.
 - `items`가 비어 있고 `interaction_units`가 존재하면, 런타임 콘텐츠 컬렉션은 반드시 `interaction_units`여야 한다. 이 경우 `content.get("quests")` 또는 `data.get("quests")` 같은 legacy quiz 접근은 금지다.
@@ -79,6 +84,7 @@ builder_runtime_contract:
 - `streamlit` 앱에서 사용자는 문제 풀이, 정답 확인, 해설과 학습 포인트 확인이 가능해야 한다.
 - planning package 입력이면 interface_spec, state_machine, data_schema의 score/grade 규칙, prompt_spec의 평가 의도를 반영한다.
 - Streamlit 재실행 API는 `st.rerun()`만 사용한다. `st.experimental_rerun()`은 사용하지 않는다.
+- query parameter 접근은 `st.query_params`만 사용한다. `st.experimental_get_query_params()`와 `st.experimental_set_query_params()`는 사용하지 않는다.
 - `current_screen` 기반 상태 머신을 구현하고, `SCREEN_START`, `SCREEN_MULTIPLE_CHOICE`, `SCREEN_MULTIPLE_CHOICE_RESULT`, `SCREEN_IMPROVEMENT`, `SCREEN_IMPROVEMENT_RESULT`, `SCREEN_BATTLE`, `SCREEN_BATTLE_RESULT`, `SCREEN_BATTLE_COMPLETED`, `SCREEN_SESSION_RESULT`를 필요한 만큼 포함하라.
 - 제출 직후 바로 다음 문제로 이동하지 말고, 반드시 `SCREEN_MULTIPLE_CHOICE_RESULT`, `SCREEN_IMPROVEMENT_RESULT`, 또는 `SCREEN_BATTLE_RESULT` feedback screen을 거쳐라.
 - `퀘스트 v2` 입력에서는 `multiple_choice → situation_card → question_improvement → situation_card → battle` 흐름을 반영해야 한다.

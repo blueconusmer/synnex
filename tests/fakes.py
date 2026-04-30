@@ -7,7 +7,7 @@ from orchestrator.app_source import build_streamlit_app_source
 from schemas.implementation.content_interaction import ContentInteractionOutput
 from schemas.implementation.common import QuizItem
 from schemas.implementation.orchestration_decision import OrchestrationJudgeOutput
-from schemas.implementation.prototype_builder import AppSourceGenerationOutput
+from schemas.implementation.prototype_builder import AppFlowPlanOutput, AppSourceGenerationOutput
 from schemas.implementation.prototype_builder import PrototypeBuilderOutput
 from schemas.implementation.qa_alignment import QAAlignmentOutput
 from schemas.implementation.requirement_mapping import RequirementMappingOutput
@@ -34,6 +34,7 @@ class FakeLLMClient:
         invalid_app_generation: bool = False,
         patch_source: str | None = None,
         repair_sources: list[str] | None = None,
+        plan_outputs: list[dict[str, object]] | None = None,
         no_patch: bool = False,
         weak_spec_first_pass: bool = False,
         weak_requirement_first_pass: bool = False,
@@ -47,6 +48,7 @@ class FakeLLMClient:
         self.invalid_app_generation = invalid_app_generation
         self.patch_source = patch_source
         self.repair_sources = list(repair_sources or [])
+        self.plan_outputs = list(plan_outputs or [])
         self.no_patch = no_patch
         self.weak_spec_first_pass = weak_spec_first_pass
         self.weak_requirement_first_pass = weak_requirement_first_pass
@@ -362,6 +364,11 @@ class FakeLLMClient:
                     "ai_question": _build_ai_question_for_type(quiz_type),
                 }
             )
+
+        if response_name == AppFlowPlanOutput.__name__:
+            if self.plan_outputs:
+                return response_model.model_validate(self.plan_outputs.pop(0))
+            return response_model.model_validate(_build_fake_app_flow_plan_from_prompt(prompt))
 
         if response_name == AppSourceGenerationOutput.__name__:
             if self.fail_app_generation:
@@ -1142,14 +1149,18 @@ def _build_evaluation_rules_for_content_types(
 
 
 def _extract_list_from_prompt(prompt: str, field_name: str) -> list[str]:
-    match = re.search(rf"- {re.escape(field_name)}: (\[.*?\])", prompt)
-    if not match:
-        return []
-    try:
-        payload = json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return []
-    return [str(item) for item in payload if str(item).strip()]
+    prefix = f"- {field_name}: "
+    for line in prompt.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith(prefix):
+            continue
+        payload_text = stripped[len(prefix) :].strip()
+        try:
+            payload = json.loads(payload_text)
+        except json.JSONDecodeError:
+            return []
+        return [str(item) for item in payload if str(item).strip()]
+    return []
 
 
 def _extract_int_from_prompt(prompt: str, field_name: str, *, default: int) -> int:
@@ -1164,6 +1175,98 @@ def _extract_scalar_from_prompt(prompt: str, field_name: str) -> str:
     if not match:
         return ""
     return match.group(1).strip()
+
+
+def _build_fake_app_flow_plan_from_prompt(prompt: str) -> dict[str, object]:
+    interaction_mode = _extract_scalar_from_prompt(prompt, "interaction_mode") or "quiz"
+    content_runtime_source = (
+        _extract_scalar_from_prompt(prompt, "expected_content_runtime_source") or "quests"
+    )
+    required_screen_constants = _extract_list_from_prompt(prompt, "required_screen_constants")
+    required_transition_assignments = _extract_list_from_prompt(
+        prompt,
+        "required_transition_assignments",
+    )
+    required_functions = _extract_list_from_prompt(prompt, "required_functions")
+    required_runtime_literals = _extract_list_from_prompt(prompt, "required_runtime_literals")
+    forbidden_runtime_literals = _extract_list_from_prompt(prompt, "forbidden_runtime_literals")
+    forbidden_raw_runtime_fields = _extract_list_from_prompt(prompt, "forbidden_raw_runtime_fields")
+
+    screens = [
+        {
+            "screen_id": screen_id,
+            "purpose": f"{screen_id} runtime screen",
+            "interaction_type": "coaching_feedback" if "FOLLOW_UP" in screen_id else "feedback" if "RESULT" in screen_id else "free_text_input" if screen_id == "SCREEN_INPUT" else "multiple_choice" if "MULTIPLE_CHOICE" in screen_id else "display_content",
+            "required_ui_elements": [screen_id],
+        }
+        for screen_id in required_screen_constants
+    ]
+    transitions = []
+    previous_screen = required_screen_constants[0] if required_screen_constants else "SCREEN_START"
+    for assignment in required_transition_assignments:
+        target_match = re.search(r"=\s*(SCREEN_[A-Z_]+)", assignment)
+        to_screen = target_match.group(1) if target_match else previous_screen
+        transitions.append(
+            {
+                "from_screen": previous_screen,
+                "to_screen": to_screen,
+                "trigger": "state transition",
+                "state_assignment": assignment,
+            }
+        )
+        previous_screen = to_screen
+
+    error_path = None
+    if "SCREEN_ERROR" in required_screen_constants:
+        error_path = {
+            "target_screen": "SCREEN_ERROR",
+            "trigger": "invalid input or exception",
+            "state_assignment": "st.session_state.current_screen = SCREEN_ERROR",
+            "notes": "explicit error path",
+        }
+
+    result_target = (
+        "SCREEN_RESULT"
+        if "SCREEN_RESULT" in required_screen_constants
+        else "SCREEN_SESSION_RESULT"
+        if "SCREEN_SESSION_RESULT" in required_screen_constants
+        else next((screen for screen in required_screen_constants if "RESULT" in screen), "")
+    )
+    result_path = None
+    if result_target:
+        result_path = {
+            "target_screen": result_target,
+            "trigger": "submit completed",
+            "state_assignment": next(
+                (
+                    assignment
+                    for assignment in required_transition_assignments
+                    if result_target in assignment
+                ),
+                "",
+            ),
+            "notes": "primary result path",
+        }
+
+    return {
+        "interaction_mode": interaction_mode,
+        "content_runtime_source": content_runtime_source,
+        "content_loading_order": "outputs_first",
+        "screens": screens,
+        "transitions": transitions,
+        "required_functions": required_functions,
+        "required_runtime_literals": required_runtime_literals,
+        "forbidden_runtime_literals": forbidden_runtime_literals,
+        "forbidden_raw_runtime_fields": forbidden_raw_runtime_fields,
+        "data_bindings": {
+            "runtime_collection": content_runtime_source,
+            "forbidden_runtime_literals": forbidden_runtime_literals,
+            "forbidden_raw_runtime_fields": forbidden_raw_runtime_fields,
+        },
+        "error_path": error_path,
+        "result_path": result_path,
+        "generation_notes": ["fake deterministic AppFlowPlan"],
+    }
 
 
 def _build_llm_generated_streamlit_source(content_filename: str) -> str:

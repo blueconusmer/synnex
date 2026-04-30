@@ -427,6 +427,11 @@ class ImplementationPipeline:
             self.output_dir / "prototype_builder_output.json",
             prototype_builder_output,
         )
+        if prototype_builder_output.app_flow_plan:
+            self._save_json_data(
+                self.output_dir / "builder_flow_plan.json",
+                prototype_builder_output.app_flow_plan,
+            )
         if not prototype_builder_output.is_supported:
             return prototype_builder_output, None
 

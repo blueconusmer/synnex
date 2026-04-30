@@ -47,6 +47,72 @@ def _extract_function_block(source: str, name: str, next_name: str) -> str:
     return source.split(f"def {name}", 1)[1].split(f"def {next_name}", 1)[0]
 
 
+def _build_plan_from_contract(contract, *, runtime_source: str) -> dict[str, object]:
+    screens = [
+        {
+            "screen_id": screen_id,
+            "purpose": f"{screen_id} runtime screen",
+            "interaction_type": "display_content",
+            "required_ui_elements": [screen_id],
+        }
+        for screen_id in contract.required_screen_constants
+    ]
+    transitions = []
+    previous_screen = contract.required_screen_constants[0]
+    for assignment in contract.required_transition_assignments:
+        to_screen = assignment.rsplit("=", 1)[-1].strip()
+        transitions.append(
+            {
+                "from_screen": previous_screen,
+                "to_screen": to_screen,
+                "trigger": "state transition",
+                "state_assignment": assignment,
+            }
+        )
+        previous_screen = to_screen
+
+    error_path = None
+    if "SCREEN_ERROR" in contract.required_screen_constants:
+        error_path = {
+            "target_screen": "SCREEN_ERROR",
+            "trigger": "error",
+            "state_assignment": "st.session_state.current_screen = SCREEN_ERROR",
+            "notes": "error path",
+        }
+    result_target = (
+        "SCREEN_RESULT"
+        if "SCREEN_RESULT" in contract.required_screen_constants
+        else "SCREEN_SESSION_RESULT"
+    )
+    return {
+        "interaction_mode": contract.interaction_mode,
+        "content_runtime_source": runtime_source,
+        "content_loading_order": "outputs_first",
+        "screens": screens,
+        "transitions": transitions,
+        "required_functions": list(contract.required_functions),
+        "required_runtime_literals": list(contract.required_runtime_literals),
+        "forbidden_runtime_literals": list(contract.forbidden_runtime_literals),
+        "forbidden_raw_runtime_fields": list(contract.forbidden_raw_runtime_fields),
+        "data_bindings": {"runtime_collection": runtime_source},
+        "error_path": error_path,
+        "result_path": {
+            "target_screen": result_target,
+            "trigger": "completed",
+            "state_assignment": next(
+                (
+                    assignment
+                    for assignment in contract.required_transition_assignments
+                    if result_target in assignment
+                ),
+                "",
+            ),
+            "notes": "result path",
+        },
+        "generation_notes": ["test flow plan"],
+    }
+
+
 def _build_chatbot_builder_input(fake: FakeLLMClient) -> PrototypeBuilderInput:
     intake_result = load_input_intake(CHATBOT_PACKAGE_DIR)
     assert intake_result.implementation_spec is not None
@@ -99,7 +165,12 @@ def test_prototype_builder_materializes_llm_generated_app_from_planning_package(
     assert output.is_supported is True
     assert output.unsupported_reason == ""
     assert output.generation_mode == "llm_generated"
+    assert output.generation_stage == "plan_then_code"
+    assert output.plan_validation_passed is True
+    assert output.plan_repair_attempts == 0
     assert output.fallback_used is False
+    assert output.app_flow_plan["content_runtime_source"] == "quests"
+    assert any(entry.startswith("screen_count=") for entry in output.plan_summary)
     assert "LLM_GENERATED_APP_MARKER" in source
     assert "def api_session_start()" in source
     assert "def api_quest_submit(user_response: Any)" in source
@@ -136,6 +207,7 @@ def test_prototype_builder_materializes_llm_generated_app_from_planning_package(
     assert "current_screen" in prompt
     assert "st.rerun()" in prompt
     assert "interaction_units(primary contract)" in prompt
+    assert "validated_app_flow_plan" in prompt
     assert '"interaction_mode": "quiz"' in prompt or "interaction_mode:\nquiz" in prompt
     assert "primary contract" in prompt
 
@@ -174,6 +246,7 @@ def test_prototype_builder_materializes_llm_generated_v2_app_without_fallback() 
     prompt = fake.prompts[-1]
 
     assert output.generation_mode == "llm_generated"
+    assert output.plan_validation_passed is True
     assert output.fallback_used is False
     assert "LLM_GENERATED_APP_MARKER" in source
     assert "current_screen" in source
@@ -225,6 +298,8 @@ def test_prototype_builder_materializes_llm_generated_coaching_app_without_legac
     source = output.generated_files[0].content
 
     assert output.generation_mode == "llm_generated"
+    assert output.plan_validation_passed is True
+    assert output.app_flow_plan["content_runtime_source"] == "interaction_units"
     assert output.fallback_used is False
     assert 'get("interaction_units"' in source
     assert 'get("quests"' not in source
@@ -312,6 +387,37 @@ def test_prototype_builder_repairs_single_missing_marker_without_fallback() -> N
     assert any("Repair attempt 1 succeeded" in entry for entry in output.repair_history)
 
 
+def test_prototype_builder_repairs_invalid_plan_before_code_generation() -> None:
+    fake = FakeLLMClient()
+    builder_input = _build_chatbot_builder_input(fake)
+    spec = builder_input.implementation_spec
+    content_filename = build_content_filename(spec.service_name)
+    contract = _build_builder_runtime_contract(
+        input_model=builder_input,
+        content_filename=content_filename,
+        package_context={},
+    )
+    invalid_plan = _build_plan_from_contract(contract, runtime_source="interaction_units")
+    invalid_plan["screens"] = [
+        screen
+        for screen in invalid_plan["screens"]
+        if screen["screen_id"] != "SCREEN_ERROR"
+    ]
+    valid_plan = _build_plan_from_contract(contract, runtime_source="interaction_units")
+    repair_fake = FakeLLMClient(plan_outputs=[invalid_plan, valid_plan])
+
+    output = run_prototype_builder_agent(builder_input, repair_fake)
+
+    assert output.generation_mode == "llm_generated"
+    assert output.plan_validation_passed is True
+    assert output.plan_repair_attempts == 1
+    assert output.fallback_used is False
+    assert "SCREEN_ERROR" in {
+        screen["screen_id"]
+        for screen in output.app_flow_plan["screens"]
+    }
+
+
 def test_prototype_builder_stops_early_when_same_error_repeats() -> None:
     fake = FakeLLMClient()
     builder_input = _build_chatbot_builder_input(fake)
@@ -377,6 +483,60 @@ def test_prototype_builder_allows_second_repair_when_failure_changes() -> None:
     assert output.initial_validation_error_code == "ROOT_FIRST_CONTENT_LOADING"
     assert len(output.repair_history) >= 3
     assert any("Repair attempt 2 succeeded" in entry for entry in output.repair_history)
+
+
+def test_prototype_builder_allows_second_repair_after_syntax_failure() -> None:
+    fake = FakeLLMClient()
+    builder_input = _build_chatbot_builder_input(fake)
+    spec = builder_input.implementation_spec
+    content_filename = build_content_filename(spec.service_name)
+    valid_source = build_streamlit_app_source(
+        spec.service_name,
+        content_filename,
+        interaction_mode="coaching",
+    )
+    invalid_streamlit_source = valid_source.replace("st.rerun()", "st.experimental_rerun()", 1)
+    syntax_invalid_source = valid_source.replace(
+        '    st.write(f"진단 모드: {result.get(\'diagnosis_mode\', \'completed\')}")',
+        '    st.write(f"진단 모드: {result.get(\'diagnosis_mode\', \'completed\')")',
+        1,
+    )
+    repair_fake = FakeLLMClient(
+        app_source=invalid_streamlit_source,
+        repair_sources=[syntax_invalid_source, valid_source],
+    )
+
+    output = run_prototype_builder_agent(builder_input, repair_fake)
+
+    assert output.generation_mode == "llm_generated"
+    assert output.fallback_used is False
+    assert output.reflection_attempts == 2
+    assert output.initial_validation_error_code == "INVALID_STREAMLIT_API"
+    assert any("Repair attempt 2 succeeded" in entry for entry in output.repair_history)
+
+
+def test_prototype_builder_rejects_experimental_query_params_api() -> None:
+    fake = FakeLLMClient()
+    builder_input = _build_chatbot_builder_input(fake)
+    spec = builder_input.implementation_spec
+    content_filename = build_content_filename(spec.service_name)
+    valid_source = build_streamlit_app_source(
+        spec.service_name,
+        content_filename,
+        interaction_mode="coaching",
+    )
+    invalid_source = valid_source.replace(
+        "def contains_any(text: str, markers: list[str]) -> bool:",
+        'st.session_state["session_id"] = st.experimental_get_query_params().get("session_id", ["default"])[0]\n\ndef contains_any(text: str, markers: list[str]) -> bool:',
+        1,
+    )
+    repair_fake = FakeLLMClient(app_source=invalid_source, patch_source=valid_source)
+
+    output = run_prototype_builder_agent(builder_input, repair_fake)
+
+    assert output.generation_mode == "llm_generated"
+    assert output.fallback_used is False
+    assert output.initial_validation_error_code == "INVALID_STREAMLIT_API"
 
 
 def test_prototype_builder_uses_fallback_when_llm_call_fails() -> None:
