@@ -1,0 +1,236 @@
+{
+  "agent": {
+    "english_name": "Content & Interaction Agent",
+    "korean_name": "교육 콘텐츠·상호작용 생성 Agent"
+  },
+  "service_summary": "Question Coaching Chatbot은 학생들이 주제/상황/원하는 답의 형태를 포함한 질문을 스스로 작성할 수 있도록 순차적 보완 방식(구체성→맥락성→목적성)으로 최대 2회 되묻기 후 개선 질문을 제시하는 서비스입니다.",
+  "interaction_mode": "coaching",
+  "interaction_mode_reason": "coaching markers detected: 질문 입력, 되묻기, coaching, /api/chat",
+  "quiz_types": [],
+  "items": [],
+  "answer_key": {},
+  "explanations": {},
+  "learning_points": {},
+  "interaction_notes": [
+    "순차적 보완 프로세스(구체성→맥락성→목적성) 적용",
+    "각 단계에서 학습 발판(체크리스트/예시/비교) 제공",
+    "최대 2회 재작성 기회 제공",
+    "평가적 표현 배제 및 성장적 표현 사용",
+    "6대 운영 원칙 준수(답 미제공, 순차적 보완, 즉시 단계 이동, 자기 수정 우선, 학습 발판 유지, 2회 내 성취 경험)"
+  ],
+  "interaction_units": [
+    {
+      "unit_id": "input_001",
+      "interaction_type": "free_text_input",
+      "title": "질문 입력",
+      "learner_action": "주제, 상황, 원하는 답의 형태를 포함한 질문 작성",
+      "system_response": "질문을 자유롭게 입력해주세요. 예) '수학/방정식 풀이/단계별 설명'",
+      "input_format": "free text",
+      "feedback_rule": "",
+      "learning_dimension": "질문 구조화",
+      "next_step": "check_001",
+      "metadata": {
+        "content_type": "need_specificity",
+        "learning_goal": "구체성"
+      }
+    },
+    {
+      "unit_id": "check_001",
+      "interaction_type": "feedback",
+      "title": "질문 확인",
+      "learner_action": "시스템 피드백 확인",
+      "system_response": "학습 발판: [체크리스트] 1. 주제가 명확한가요? 2. 상황이 설명되었나요? 3. 원하는 답의 형태가 포함되었나요?",
+      "input_format": "",
+      "feedback_rule": "3요소 누락 시 다음 단계로 이동",
+      "learning_dimension": "자기 점검",
+      "next_step": "clarify_specificity_001",
+      "metadata": {
+        "content_type": "need_specificity",
+        "learning_goal": "구체성"
+      }
+    },
+    {
+      "unit_id": "clarify_specificity_001",
+      "interaction_type": "coaching_feedback",
+      "title": "구체성 되묻기",
+      "learner_action": "구체성 추가 질문 확인",
+      "system_response": "학습 발판: [예시] '수학' → '2차 방정식 풀이' / [비교] 'AI 답변' vs '단계별 설명'",
+      "input_format": "",
+      "feedback_rule": "주제 구체화 요청",
+      "learning_dimension": "구체성 향상",
+      "next_step": "retry_001",
+      "metadata": {
+        "content_type": "need_specificity",
+        "learning_goal": "구체성"
+      }
+    },
+    {
+      "unit_id": "retry_001",
+      "interaction_type": "free_text_input",
+      "title": "재작성",
+      "learner_action": "구체성 추가 후 질문 재작성",
+      "system_response": "주제를 더 구체적으로 수정해주세요. 예) '2차 방정식 풀이/...'",
+      "input_format": "free text",
+      "feedback_rule": "",
+      "learning_dimension": "자기 수정",
+      "next_step": "check_002",
+      "metadata": {
+        "content_type": "need_context",
+        "learning_goal": "맥락성"
+      }
+    },
+    {
+      "unit_id": "check_002",
+      "interaction_type": "feedback",
+      "title": "맥락 확인",
+      "learner_action": "시스템 피드백 확인",
+      "system_response": "학습 발판: [체크리스트] 1. 문제 상황이 설명되었나요? 2. 배경 정보가 포함되었나요?",
+      "input_format": "",
+      "feedback_rule": "맥락성 부족 시 다음 단계로 이동",
+      "learning_dimension": "맥락 점검",
+      "next_step": "clarify_context_001",
+      "metadata": {
+        "content_type": "need_context",
+        "learning_goal": "맥락성"
+      }
+    },
+    {
+      "unit_id": "clarify_context_001",
+      "interaction_type": "coaching_feedback",
+      "title": "맥락성 되묻기",
+      "learner_action": "맥락성 추가 질문 확인",
+      "system_response": "학습 발판: [예시] '2차 방정식 풀이/학교 시험 문제/...' / [비교] '일반 풀이' vs '학교 시험 유형'",
+      "input_format": "",
+      "feedback_rule": "상황 설명 요청",
+      "learning_dimension": "맥락성 향상",
+      "next_step": "retry_002",
+      "metadata": {
+        "content_type": "need_context",
+        "learning_goal": "맥락성"
+      }
+    },
+    {
+      "unit_id": "retry_002",
+      "interaction_type": "free_text_input",
+      "title": "재작성",
+      "learner_action": "맥락성 추가 후 질문 재작성",
+      "system_response": "문제 상황을 더 자세히 설명해주세요. 예) '2차 방정식 풀이/학교 시험 문제/...'",
+      "input_format": "free text",
+      "feedback_rule": "",
+      "learning_dimension": "자기 수정",
+      "next_step": "check_003",
+      "metadata": {
+        "content_type": "need_purpose",
+        "learning_goal": "목적성"
+      }
+    },
+    {
+      "unit_id": "check_003",
+      "interaction_type": "feedback",
+      "title": "목적 확인",
+      "learner_action": "시스템 피드백 확인",
+      "system_response": "학습 발판: [체크리스트] 1. 원하는 답의 형태가 명시되었나요? 2. 답변 사용 목적이 포함되었나요?",
+      "input_format": "",
+      "feedback_rule": "목적성 부족 시 다음 단계로 이동",
+      "learning_dimension": "목적 점검",
+      "next_step": "clarify_purpose_001",
+      "metadata": {
+        "content_type": "need_purpose",
+        "learning_goal": "목적성"
+      }
+    },
+    {
+      "unit_id": "clarify_purpose_001",
+      "interaction_type": "coaching_feedback",
+      "title": "목적성 되묻기",
+      "learner_action": "목적성 추가 질문 확인",
+      "system_response": "학습 발판: [예시] '2차 방정식 풀이/학교 시험 문제/단계별 풀이 과정' / [비교] '공식만' vs '풀이 과정'",
+      "input_format": "",
+      "feedback_rule": "답의 형태 요청",
+      "learning_dimension": "목적성 향상",
+      "next_step": "retry_003",
+      "metadata": {
+        "content_type": "need_purpose",
+        "learning_goal": "목적성"
+      }
+    },
+    {
+      "unit_id": "retry_003",
+      "interaction_type": "free_text_input",
+      "title": "최종 재작성",
+      "learner_action": "목적성 추가 후 질문 재작성",
+      "system_response": "원하는 답의 형태를 명시해주세요. 예) '2차 방정식 풀이/학교 시험 문제/단계별 풀이 과정'",
+      "input_format": "free text",
+      "feedback_rule": "",
+      "learning_dimension": "자기 수정",
+      "next_step": "result_001",
+      "metadata": {
+        "content_type": "completed",
+        "learning_goal": "질문 완성"
+      }
+    },
+    {
+      "unit_id": "result_001",
+      "interaction_type": "feedback",
+      "title": "결과 확인",
+      "learner_action": "개선된 질문 확인",
+      "system_response": "축하합니다! 완성된 질문: '2차 방정식 풀이/학교 시험 문제/단계별 풀이 과정'. 이 질문으로 AI에게 질문해보세요!",
+      "input_format": "",
+      "feedback_rule": "성장적 표현 사용",
+      "learning_dimension": "성취 경험",
+      "next_step": "END",
+      "metadata": {
+        "content_type": "completed",
+        "learning_goal": "질문 완성"
+      }
+    }
+  ],
+  "flow_notes": [
+    "순차적 보완 프로세스(구체성→맥락성→목적성) 적용",
+    "각 단계에서 학습 발판(체크리스트/예시/비교) 제공",
+    "최대 2회 재작성 기회 제공",
+    "평가적 표현 배제 및 성장적 표현 사용",
+    "6대 운영 원칙 준수(답 미제공, 순차적 보완, 즉시 단계 이동, 자기 수정 우선, 학습 발판 유지, 2회 내 성취 경험)"
+  ],
+  "evaluation_rules": {
+    "retry_limit": 2,
+    "learning_scaffolds": [
+      "체크리스트",
+      "예시",
+      "비교"
+    ],
+    "feedback_tone": "성장적 표현",
+    "operating_principles": [
+      "답 미제공",
+      "순차적 보완",
+      "즉시 단계 이동",
+      "자기 수정 우선",
+      "학습 발판 유지",
+      "2회 내 성취 경험"
+    ],
+    "mode": "coaching",
+    "diagnosis_criteria": [
+      "구체성",
+      "맥락성",
+      "목적성"
+    ],
+    "completion_rule": "next_step가 END에 도달하면 세션을 종료한다.",
+    "feedback_types": {
+      "feedback": "정답/해설/결과에 대한 일반 피드백",
+      "coaching_feedback": "사용자 자유 입력을 바탕으로 개선 방향을 제안하는 코칭형 피드백"
+    }
+  },
+  "semantic_validation": null,
+  "interaction_validation": {
+    "interaction_mode": "coaching",
+    "mode_inference_reason": "coaching markers detected: 질문 입력, 되묻기, coaching, /api/chat",
+    "unit_count": 11,
+    "unit_type_counts": {
+      "free_text_input": 4,
+      "feedback": 4,
+      "coaching_feedback": 3
+    },
+    "structure_valid": true,
+    "issues": []
+  }
+}
