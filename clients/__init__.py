@@ -1,4 +1,4 @@
 from clients.env import load_env_file
-from clients.llm import LLMClient, OpenAICompatibleClient
+from clients.llm import FallbackLLMClient, LLMClient, OpenAICompatibleClient
 
-__all__ = ["LLMClient", "OpenAICompatibleClient", "load_env_file"]
+__all__ = ["LLMClient", "OpenAICompatibleClient", "FallbackLLMClient", "load_env_file"]
