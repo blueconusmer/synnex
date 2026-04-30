@@ -1,0 +1,255 @@
+{
+  "status": "NEEDS_PLANNING_REVIEW",
+  "planning_package": {
+    "service_meta": {
+      "service_name": "Question Coaching Chatbot",
+      "target_framework": "streamlit",
+      "target_user": "",
+      "purpose": "",
+      "version": ""
+    },
+    "content_spec": {
+      "content_types": [
+        "need_specificity",
+        "need_context",
+        "need_purpose",
+        "completed"
+      ],
+      "total_count": 4,
+      "items_per_type": 0,
+      "difficulty_levels": []
+    },
+    "evaluation_spec": {
+      "rubric_criteria": [
+        "구체성",
+        "맥락성",
+        "목적성"
+      ],
+      "grade_levels": [
+        "브론즈",
+        "실버",
+        "골드",
+        "플래티넘"
+      ],
+      "score_rules": {
+        "rubric_grades": [
+          "우수",
+          "양호",
+          "미흡"
+        ],
+        "service_grades": {},
+        "answer_score_rules": {}
+      }
+    },
+    "interaction_spec": {
+      "session_structure": [
+        "awaiting_input",
+        "diagnosing",
+        "need_specificity",
+        "need_context",
+        "need_purpose",
+        "completed",
+        "error"
+      ],
+      "state_transitions": [
+        "awaiting_input->diagnosing",
+        "diagnosing->need_specificity",
+        "need_specificity->need_context",
+        "need_context->need_purpose",
+        "need_purpose->completed",
+        "completed->error"
+      ],
+      "scoring_rules": {
+        "answer_score_rules": {},
+        "rubric_overall_rule": "",
+        "session_completion_rule": "",
+        "grade_up_message_rule": "",
+        "llm_timeout_message": ""
+      }
+    },
+    "interface_spec": {
+      "screens": [
+        "질문 입력 화면",
+        "되묻기 화면 (mode: `need_specificity` / `need_context` / `need_purpose`)",
+        "재요청 결과 화면 (mode: `completed`)"
+      ],
+      "api_endpoints": [
+        "/api/chat"
+      ]
+    },
+    "llm_spec": {
+      "generation_prompt": "Role: 너는 학생들이 질문을 잘할 수 있도록 돕는 질문 코칭 전문가다.\n\nTarget: 중학생 (어휘 수준을 낮게 유지할 것)\n\nConstraints:\n- 한 번에 3문장을 넘지 마라\n- 평가하지 말고 성장을 강조하라\n- 답을 바로 주지 말고 질문을 개선하도록 유도하라\n- 모든 표현은 중학생 눈높이에 맞춘 쉬운 말로 쓸 것\n\n사용자의 질문이 모호하다.\n루브릭 기준 중 가장 부족한 것 하나를 골라 되묻기 1회만 수행하라.\n\n출력 형식:\n- mode: \"need_specificity\" / \"need_context\" / \"need_purpose\"\n- diagnosis: 부족한 점 한 문장 진단\n- follow_up_question: 되묻기 질문 한 문장\n- next_action: \"ask_more\"\n\n사용자가 보완된 질문을 제출했다.\n다음을 수행하라:\n- 질문이 어떻게 좋아졌는지 한 문장으로 칭찬한다.\n- 개선된 질문을 한 문장으로 정리해서 제시한다.\n\n출력 형식:\n- mode: \"completed\"\n- improved_question: 개선된 질문 단독 출력\n- next_action: \"show_result\"",
+      "evaluation_prompt": "사용자가 보완된 질문을 제출했다.\n다음을 수행하라:\n- 질문이 어떻게 좋아졌는지 한 문장으로 칭찬한다.\n- 개선된 질문을 한 문장으로 정리해서 제시한다.\n\n출력 형식:\n- mode: \"completed\"\n- improved_question: 개선된 질문 단독 출력\n- next_action: \"show_result\""
+    },
+    "test_spec": {
+      "test_file_path": "",
+      "acceptance_criteria": []
+    },
+    "constraints": [
+      "본 헌법은 0차 산출물로서 모든 후속 문서보다 우선한다.",
+      "하위 산출물이 본 헌법과 충돌할 경우 헌법 기준을 우선 적용한다.",
+      "서비스 변경 시에도 본 헌법(특히 ④~⑦)과의 정합성을 우선 검토한다."
+    ]
+  },
+  "implementation_spec": {
+    "source_path": "inputs/260428_챗봇",
+    "service_name": "Question Coaching Chatbot",
+    "target_framework": "streamlit",
+    "team_identity": "교육 서비스 구현 전문 AI Agent 팀",
+    "service_purpose": "",
+    "target_users": [],
+    "learning_goals": [
+      "구체성",
+      "맥락성",
+      "목적성"
+    ],
+    "core_features": [
+      "need_specificity",
+      "need_context",
+      "need_purpose",
+      "completed"
+    ],
+    "total_count": 4,
+    "items_per_type": 0,
+    "content_interaction_direction": [
+      "awaiting_input",
+      "diagnosing",
+      "need_specificity",
+      "need_context",
+      "need_purpose",
+      "completed",
+      "error",
+      "awaiting_input->diagnosing",
+      "diagnosing->need_specificity",
+      "need_specificity->need_context",
+      "need_context->need_purpose",
+      "need_purpose->completed",
+      "completed->error"
+    ],
+    "excluded_scope": [],
+    "expected_outputs": [
+      "질문 입력 화면",
+      "되묻기 화면 (mode: `need_specificity` / `need_context` / `need_purpose`)",
+      "재요청 결과 화면 (mode: `completed`)",
+      "/api/chat"
+    ],
+    "acceptance_criteria": [],
+    "constraints": [
+      "본 헌법은 0차 산출물로서 모든 후속 문서보다 우선한다.",
+      "하위 산출물이 본 헌법과 충돌할 경우 헌법 기준을 우선 적용한다.",
+      "서비스 변경 시에도 본 헌법(특히 ④~⑦)과의 정합성을 우선 검토한다."
+    ]
+  },
+  "source_paths": [
+    "inputs/260428_챗봇/constitution.md",
+    "inputs/260428_챗봇/data_schema.json",
+    "inputs/260428_챗봇/state_machine.md",
+    "inputs/260428_챗봇/prompt_spec.md",
+    "inputs/260428_챗봇/interface_spec.md"
+  ],
+  "runtime_config": {
+    "service_slug": "question_coaching_chatbot",
+    "target_framework": "streamlit",
+    "content_output_filename": "question_coaching_chatbot_contents.json",
+    "normalized_source_path": "inputs/260428_챗봇",
+    "service_name_source": "data_schema._meta.service_name",
+    "content_types_source": "data_schema.output.mode.allowed_values",
+    "total_count_source": "derived_from_mode_allowed_values_count",
+    "screens_source": "interface_spec.screen_labels",
+    "api_endpoints_source": "interface_spec.http_method_lines",
+    "content_distribution": {
+      "item_count_by_type": {
+        "need_specificity": 1,
+        "need_context": 1,
+        "need_purpose": 1,
+        "completed": 1
+      },
+      "total_count": 4,
+      "distribution_source": "data_schema.output.mode.allowed_values"
+    }
+  },
+  "auto_fixes": [
+    {
+      "field_path": "runtime_config.service_slug",
+      "before": "Question Coaching Chatbot",
+      "after": "question_coaching_chatbot",
+      "reason": "service_name을 파일명에 안전한 service_slug로 정규화했다. (source=data_schema._meta.service_name)"
+    },
+    {
+      "field_path": "runtime_config.target_framework",
+      "before": null,
+      "after": "streamlit",
+      "reason": "ImplementationSpec 기준 target_framework 실행 값을 기록했다."
+    },
+    {
+      "field_path": "runtime_config.content_output_filename",
+      "before": null,
+      "after": "question_coaching_chatbot_contents.json",
+      "reason": "service_slug 기반 콘텐츠 출력 파일명을 생성했다."
+    },
+    {
+      "field_path": "runtime_config.normalized_source_path",
+      "before": "inputs/260428_챗봇",
+      "after": "inputs/260428_챗봇",
+      "reason": "입력 package 경로를 절대 경로로 정규화했다."
+    },
+    {
+      "field_path": "runtime_config.content_distribution",
+      "before": null,
+      "after": {
+        "item_count_by_type": {
+          "need_specificity": 1,
+          "need_context": 1,
+          "need_purpose": 1,
+          "completed": 1
+        },
+        "total_count": 4,
+        "distribution_source": "data_schema.output.mode.allowed_values"
+      },
+      "reason": "생성 단위 수를 content type별 분포로 추론했다. (source=data_schema.output.mode.allowed_values)"
+    },
+    {
+      "field_path": "service_meta.target_user",
+      "before": "",
+      "after": "",
+      "reason": "optional field 누락을 기본값으로 처리했다: service_meta.target_user"
+    },
+    {
+      "field_path": "test_spec.acceptance_criteria",
+      "before": [],
+      "after": [],
+      "reason": "optional field 누락을 기본값으로 처리했다: test_spec.acceptance_criteria"
+    }
+  ],
+  "planning_review_items": [
+    {
+      "field_path": "content_spec.total_count",
+      "reason": "mode.allowed_values 개수를 total_count 실행값으로 사용했으나 mode 수와 콘텐츠 수는 동일하다고 자동 확정할 수 없습니다.",
+      "blocking": false
+    },
+    {
+      "field_path": "service_meta.purpose",
+      "reason": "서비스 목적은 학습 경험과 의도를 바꾸는 영역이라 자동 작성하지 않는다.",
+      "blocking": false
+    }
+  ],
+  "issues": [],
+  "quality_judgement": {
+    "auto_fixable_functional_gaps": [
+      "service_name을 파일명에 안전한 service_slug로 정규화했다. (source=data_schema._meta.service_name)",
+      "ImplementationSpec 기준 target_framework 실행 값을 기록했다.",
+      "service_slug 기반 콘텐츠 출력 파일명을 생성했다.",
+      "입력 package 경로를 절대 경로로 정규화했다.",
+      "생성 단위 수를 content type별 분포로 추론했다. (source=data_schema.output.mode.allowed_values)",
+      "optional field 누락을 기본값으로 처리했다: service_meta.target_user",
+      "optional field 누락을 기본값으로 처리했다: test_spec.acceptance_criteria"
+    ],
+    "planning_review_required": [
+      "mode.allowed_values 개수를 total_count 실행값으로 사용했으나 mode 수와 콘텐츠 수는 동일하다고 자동 확정할 수 없습니다.",
+      "서비스 목적은 학습 경험과 의도를 바꾸는 영역이라 자동 작성하지 않는다."
+    ],
+    "blocking_conflicts": [],
+    "mvp_implementation_sufficient": true,
+    "summary": "2개 기획팀 검토 항목이 있으며 경고로 기록하고 진행합니다."
+  }
+}

@@ -59,6 +59,11 @@ class InputRuntimeConfig(SchemaModel):
     target_framework: str = Field(default="streamlit")
     content_output_filename: str = Field(default="")
     normalized_source_path: str = Field(default="")
+    service_name_source: str = Field(default="")
+    content_types_source: str = Field(default="")
+    total_count_source: str = Field(default="")
+    screens_source: str = Field(default="")
+    api_endpoints_source: str = Field(default="")
     content_distribution: ContentDistribution = Field(default_factory=ContentDistribution)
 
 
