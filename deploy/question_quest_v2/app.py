@@ -1,6 +1,5 @@
 import streamlit as st
 import json
-import os
 from pathlib import Path
 
 # Configuration
@@ -59,6 +58,23 @@ def resolve_content_path():
             return path
     return None
 
+
+def normalize_correct_option(choices, correct_choice):
+    if not isinstance(choices, list):
+        choices = []
+
+    if isinstance(correct_choice, int):
+        if 0 <= correct_choice < len(choices):
+            return correct_choice, choices[correct_choice]
+        return -1, ""
+
+    if isinstance(correct_choice, str):
+        if correct_choice in choices:
+            return choices.index(correct_choice), correct_choice
+        return -1, correct_choice
+
+    return -1, ""
+
 content_path = resolve_content_path()
 if content_path:
     with open(content_path, "r", encoding="utf-8") as f:
@@ -75,18 +91,25 @@ for item in quests:
     quest_id = item.get("item_id")
     if not quest_id:
         continue
+    choices = item.get("choices", [])
+    correct_option_index, correct_option_text = normalize_correct_option(
+        choices,
+        item.get("correct_choice"),
+    )
     normalized = {
         "quest_id": quest_id,
         "quest_type": item.get("quiz_type"),
         "difficulty": item.get("difficulty"),
         "topic_context": item.get("topic_context"),
         "original_question": item.get("original_question", ""),
-        "options": item.get("choices", []),
-        "correct_option_index": item.get("correct_choice", -1),
-        "correct_option_text": item.get("choices", [])[item.get("correct_choice", -1)] if item.get("correct_choice", -1) != -1 else "",
+        "options": choices,
+        "correct_option_index": correct_option_index,
+        "correct_option_text": correct_option_text,
         "situation": item.get("situation", ""),
         "ai_question": item.get("ai_question", ""),
-        "stage_level": item.get("stage_level", "bronze")
+        "stage_level": item.get("stage_level", "bronze"),
+        "explanation": item.get("explanation", ""),
+        "learning_point": item.get("learning_point", ""),
     }
     normalized_quests[quest_id] = normalized
 
@@ -136,7 +159,12 @@ def api_quest_submit(quest_id, user_response):
         correct_option_index = quest["correct_option_index"]
         is_correct = int(user_response) == correct_option_index
         earned_score = 20 if is_correct else 5
-        feedback = quest["explanation"] if is_correct else f"이 선택도 좋지만 더 나은 답이 있어요. {quest["explanation"]}"
+        explanation = quest["explanation"]
+        feedback = (
+            explanation
+            if is_correct
+            else f"이 선택도 좋지만 더 나은 답이 있어요. {explanation}"
+        )
         
         st.session_state.session_score += earned_score
         return {
@@ -310,6 +338,8 @@ def main():
             # Find selected option index
             selected_index = quest["options"].index(selected_option)
             result = api_quest_submit(quest_id, selected_index)
+            st.session_state.session_data["evaluation"] = result.get("evaluation", {})
+            st.session_state.session_data["earned_score"] = result.get("earned_score", 0)
             st.session_state.session_data["current_quest_index"] += 1
             st.session_state.current_screen = SCREEN_MULTIPLE_CHOICE_RESULT
             st.rerun()
@@ -362,6 +392,8 @@ def main():
                 st.warning("질문을 10자 이상 입력해주세요")
             else:
                 result = api_quest_submit(quest_id, user_response)
+                st.session_state.session_data["evaluation"] = result.get("evaluation", {})
+                st.session_state.session_data["earned_score"] = result.get("earned_score", 0)
                 st.session_state.session_data["current_quest_index"] += 1
                 st.session_state.current_screen = SCREEN_IMPROVEMENT_RESULT
                 st.rerun()
