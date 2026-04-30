@@ -70,11 +70,13 @@ def validate_and_normalize_planning_package(
     package: PlanningOutputPackage,
     package_dir: Path,
     implementation_spec: ImplementationSpec,
+    extraction_metadata: dict[str, str] | None = None,
     quality_judge: InputQualityJudge | None = None,
 ) -> InputIntakeResult:
     auto_fixes: list[AutoFixRecord] = []
     issues: list[ValidationIssue] = []
     planning_review_items: list[PlanningReviewItem] = []
+    extraction_metadata = extraction_metadata or {}
 
     service_slug = _slugify_service_name(package.service_meta.service_name)
     if service_slug != package.service_meta.service_name:
@@ -83,7 +85,10 @@ def validate_and_normalize_planning_package(
                 field_path="runtime_config.service_slug",
                 before=package.service_meta.service_name,
                 after=service_slug,
-                reason="service_name을 파일명에 안전한 service_slug로 정규화했다.",
+                reason=(
+                    "service_name을 파일명에 안전한 service_slug로 정규화했다. "
+                    f"(source={extraction_metadata.get('service_name_source', 'unknown')})"
+                ),
             )
         )
     else:
@@ -92,7 +97,10 @@ def validate_and_normalize_planning_package(
                 field_path="runtime_config.service_slug",
                 before=None,
                 after=service_slug,
-                reason="service_slug 실행 값을 생성했다.",
+                reason=(
+                    "service_slug 실행 값을 생성했다. "
+                    f"(source={extraction_metadata.get('service_name_source', 'unknown')})"
+                ),
             )
         )
 
@@ -129,6 +137,7 @@ def validate_and_normalize_planning_package(
     content_distribution = _infer_content_distribution(
         package=package,
         package_dir=package_dir,
+        extraction_metadata=extraction_metadata,
     )
     if content_distribution.item_count_by_type:
         auto_fixes.append(
@@ -136,7 +145,10 @@ def validate_and_normalize_planning_package(
                 field_path="runtime_config.content_distribution",
                 before=None,
                 after=content_distribution.model_dump(mode="json"),
-                reason="생성 단위 수를 content type별 분포로 추론했다.",
+                reason=(
+                    "생성 단위 수를 content type별 분포로 추론했다. "
+                    f"(source={content_distribution.distribution_source or 'unknown'})"
+                ),
             )
         )
 
@@ -145,13 +157,18 @@ def validate_and_normalize_planning_package(
         target_framework=target_framework,
         content_output_filename=content_output_filename,
         normalized_source_path=normalized_source_path,
+        service_name_source=extraction_metadata.get("service_name_source", ""),
+        content_types_source=extraction_metadata.get("content_types_source", ""),
+        total_count_source=extraction_metadata.get("total_count_source", ""),
+        screens_source=extraction_metadata.get("screens_source", ""),
+        api_endpoints_source=extraction_metadata.get("api_endpoints_source", ""),
         content_distribution=content_distribution,
     )
 
     _validate_required_structure(package, issues)
     _validate_generation_units(package, content_distribution, issues)
     _collect_optional_defaults(package, auto_fixes)
-    _collect_planning_review_items(package, planning_review_items)
+    _collect_planning_review_items(package, runtime_config, planning_review_items)
 
     judge = quality_judge or DeterministicInputQualityJudge()
     quality_judgement = judge.judge(
@@ -296,8 +313,19 @@ def _collect_optional_defaults(
 
 def _collect_planning_review_items(
     package: PlanningOutputPackage,
+    runtime_config: InputRuntimeConfig,
     planning_review_items: list[PlanningReviewItem],
 ) -> None:
+    if runtime_config.total_count_source == "derived_from_mode_allowed_values_count":
+        planning_review_items.append(
+            PlanningReviewItem(
+                field_path="content_spec.total_count",
+                reason=(
+                    "mode.allowed_values 개수를 total_count 실행값으로 사용했으나 "
+                    "mode 수와 콘텐츠 수는 동일하다고 자동 확정할 수 없습니다."
+                ),
+            )
+        )
     if not package.llm_spec.generation_prompt:
         planning_review_items.append(
             PlanningReviewItem(
@@ -318,6 +346,7 @@ def _infer_content_distribution(
     *,
     package: PlanningOutputPackage,
     package_dir: Path,
+    extraction_metadata: dict[str, str] | None = None,
 ) -> ContentDistribution:
     data_schema_path = package_dir / "data_schema.json"
     try:
@@ -326,6 +355,7 @@ def _infer_content_distribution(
         data_schema = {}
 
     content_types = package.content_spec.content_types
+    extraction_metadata = extraction_metadata or {}
     composition = (
         data_schema.get("constraints", {}).get("session_composition", "")
         or data_schema.get("definitions", {})
@@ -361,6 +391,18 @@ def _infer_content_distribution(
             item_count_by_type=counts,
             total_count=sum(counts.values()),
             distribution_source="content_spec.items_per_type",
+        )
+
+    if (
+        extraction_metadata.get("content_types_source") == "data_schema.output.mode.allowed_values"
+        and content_types
+        and package.content_spec.total_count == len(content_types)
+    ):
+        counts = {content_type: 1 for content_type in content_types}
+        return ContentDistribution(
+            item_count_by_type=counts,
+            total_count=sum(counts.values()),
+            distribution_source="data_schema.output.mode.allowed_values",
         )
 
     if content_types and package.content_spec.total_count > 0:
@@ -417,7 +459,7 @@ def _workspace_neutral_path(path: Path) -> str:
 def _slugify_service_name(value: str) -> str:
     normalized = re.sub(r"[^0-9A-Za-z가-힣_]+", "_", value.strip())
     normalized = re.sub(r"_+", "_", normalized).strip("_")
-    return normalized or "service_output"
+    return normalized.lower() or "service_output"
 
 
 def _build_judgement_summary(

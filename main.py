@@ -58,6 +58,17 @@ def main() -> int:
             for issue in input_intake_result.issues:
                 print(f"- {issue.code}: {issue.message}")
             return 1
+        if input_intake_result.status == ValidationStatus.NEEDS_PLANNING_REVIEW:
+            _write_input_intake_report(Path(args.output_dir), input_intake_result)
+            print(
+                "[WARNING] Input Intake Layer requires planning review; "
+                "continuing under warn-and-continue policy."
+            )
+            print(
+                f"- planning_review_items: {len(input_intake_result.planning_review_items)}"
+            )
+            for item in input_intake_result.planning_review_items:
+                print(f"- REVIEW {item.field_path}: {item.reason}")
         implementation_spec = input_intake_result.implementation_spec
     llm_client = OpenAICompatibleClient.from_env()
     pipeline = ImplementationPipeline(

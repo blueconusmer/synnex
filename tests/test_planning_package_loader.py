@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from loaders import load_input_intake, load_planning_package, planning_package_to_implementation_spec
+import main as main_module
 from main import build_parser
 from orchestrator.app_source import build_content_filename
 from orchestrator.pipeline import ImplementationPipeline
@@ -18,6 +19,7 @@ from tests.fakes import FakeLLMClient
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = REPO_ROOT / "inputs" / "mock_planning_outputs" / "question_quest_v0"
+CHATBOT_PACKAGE_DIR = REPO_ROOT / "inputs" / "260428_챗봇"
 
 
 def test_load_planning_package_reads_fixture_files() -> None:
@@ -40,6 +42,35 @@ def test_load_planning_package_reads_fixture_files() -> None:
     ]
     assert package.llm_spec.generation_prompt
     assert package.llm_spec.evaluation_prompt
+
+
+def test_load_planning_package_reads_chatbot_fixture_with_generic_fallbacks() -> None:
+    package = load_planning_package(CHATBOT_PACKAGE_DIR)
+
+    assert package.service_meta.service_name == "Question Coaching Chatbot"
+    assert package.content_spec.content_types == [
+        "need_specificity",
+        "need_context",
+        "need_purpose",
+        "completed",
+    ]
+    assert package.content_spec.total_count == 4
+    assert package.interface_spec.screens == [
+        "질문 입력 화면",
+        "되묻기 화면 (mode: `need_specificity` / `need_context` / `need_purpose`)",
+        "재요청 결과 화면 (mode: `completed`)",
+    ]
+    assert package.interface_spec.api_endpoints == ["/api/chat"]
+    assert package.interaction_spec.session_structure == [
+        "awaiting_input",
+        "diagnosing",
+        "need_specificity",
+        "need_context",
+        "need_purpose",
+        "completed",
+        "error",
+    ]
+    assert package.llm_spec.generation_prompt
 
 
 def test_loader_raises_on_malformed_data_schema_json(tmp_path: Path) -> None:
@@ -95,6 +126,39 @@ def test_input_intake_generates_runtime_config_and_distribution() -> None:
     }
     assert all(not path.startswith("/tmp/") for path in intake_result.source_paths)
     assert intake_result.quality_judgement is not None
+
+
+def test_input_intake_marks_chatbot_total_count_as_planning_review() -> None:
+    intake_result = load_input_intake(CHATBOT_PACKAGE_DIR)
+
+    assert intake_result.status == ValidationStatus.NEEDS_PLANNING_REVIEW
+    assert intake_result.runtime_config is not None
+    assert intake_result.implementation_spec is not None
+    assert intake_result.runtime_config.content_types_source == "data_schema.output.mode.allowed_values"
+    assert intake_result.runtime_config.total_count_source == "derived_from_mode_allowed_values_count"
+    assert intake_result.runtime_config.screens_source == "interface_spec.screen_labels"
+    assert intake_result.runtime_config.api_endpoints_source == "interface_spec.http_method_lines"
+    assert intake_result.runtime_config.service_slug == "question_coaching_chatbot"
+    assert (
+        intake_result.runtime_config.content_output_filename
+        == "question_coaching_chatbot_contents.json"
+    )
+    assert intake_result.runtime_config.content_distribution.item_count_by_type == {
+        "need_specificity": 1,
+        "need_context": 1,
+        "need_purpose": 1,
+        "completed": 1,
+    }
+    assert intake_result.runtime_config.content_distribution.distribution_source == (
+        "data_schema.output.mode.allowed_values"
+    )
+    assert intake_result.implementation_spec.service_name == "Question Coaching Chatbot"
+    assert intake_result.implementation_spec.total_count == 4
+    assert any(
+        item.field_path == "content_spec.total_count"
+        and "mode.allowed_values" in item.reason
+        for item in intake_result.planning_review_items
+    )
 
 
 def test_planning_package_adapter_forwards_target_framework() -> None:
@@ -165,6 +229,46 @@ def test_main_writes_input_intake_report_on_fail(tmp_path: Path) -> None:
     payload = json.loads(report_path.read_text(encoding="utf-8"))
     assert payload["status"] == "FAIL"
     assert payload["issues"][0]["code"] == "PLANNING_PACKAGE_PARSE_FAILED"
+
+
+def test_main_warns_and_continues_on_planning_review(monkeypatch, capsys) -> None:
+    intake_result = load_input_intake(CHATBOT_PACKAGE_DIR)
+    assert intake_result.status == ValidationStatus.NEEDS_PLANNING_REVIEW
+    assert intake_result.implementation_spec is not None
+
+    called = {"ran": False}
+
+    class DummyPipeline:
+        def __init__(self, **kwargs):
+            assert kwargs["implementation_spec"] == intake_result.implementation_spec
+            assert kwargs["input_intake_result"] == intake_result
+
+        def run(self):
+            called["ran"] = True
+            return {}
+
+    class DummyClient:
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+    monkeypatch.setattr(main_module, "load_input_intake", lambda _: intake_result)
+    monkeypatch.setattr(main_module, "ImplementationPipeline", DummyPipeline)
+    monkeypatch.setattr(main_module, "OpenAICompatibleClient", DummyClient)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["main.py", "--input-package", str(CHATBOT_PACKAGE_DIR), "--output-dir", "tmp_outputs"],
+    )
+
+    result = main_module.main()
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert called["ran"] is True
+    assert "warn-and-continue policy" in captured.out
+    assert "planning_review_items:" in captured.out
+    assert "REVIEW content_spec.total_count" in captured.out
 
 
 def test_parser_accepts_input_package_option() -> None:

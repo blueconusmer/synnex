@@ -36,6 +36,16 @@ OPTIONAL_FILES = {
 }
 EXPECTED_FILES = {**REQUIRED_FILES, **OPTIONAL_FILES}
 
+SERVICE_NAME_PATHS = [
+    "data_schema._meta.service_name",
+    "package_dir.slug_name",
+    "package_dir.name",
+]
+CONTENT_TYPES_PATHS = [
+    "data_schema.definitions.Quest.fields.quest_type.values",
+    "data_schema.output.mode.allowed_values",
+]
+
 
 class PlanningPackageLoadError(ValueError):
     """Raised when a planning package file exists but cannot be parsed."""
@@ -43,6 +53,15 @@ class PlanningPackageLoadError(ValueError):
 
 def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
     """Load a planning package into the canonical PlanningOutputPackage schema."""
+
+    package, _ = _load_planning_package_components(package_dir)
+    return package
+
+
+def _load_planning_package_components(
+    package_dir: Path,
+) -> tuple[PlanningOutputPackage, dict[str, str]]:
+    """Load a planning package and track the deterministic extraction sources used."""
 
     if not package_dir.exists() or not package_dir.is_dir():
         raise FileNotFoundError(f"Planning package directory does not exist: {package_dir}")
@@ -71,7 +90,22 @@ def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
     interface_sections = _parse_markdown_sections(interface_spec_text)
     prompt_sections = _parse_markdown_sections(prompt_spec_text)
 
-    service_name, version = _split_service_slug(package_dir.name)
+    service_name, version, service_name_source = _extract_service_name(data_schema, package_dir)
+    content_types, content_types_source = _extract_content_types(data_schema)
+    total_count, total_count_source = _extract_total_count(
+        data_schema,
+        content_types=content_types,
+        content_types_source=content_types_source,
+    )
+    screens, screens_source = _extract_screens(
+        interface_sections,
+        interface_spec_text,
+        state_machine_sections,
+        state_machine_text,
+    )
+    api_endpoints, api_endpoints_source = _extract_api_endpoints(interface_spec_text)
+    generation_prompt = _extract_generation_prompt(prompt_spec_text, prompt_sections)
+    evaluation_prompt = _extract_evaluation_prompt(prompt_spec_text, prompt_sections)
     score_rules = _build_score_rules(constitution_text, data_schema)
     interaction_scoring_rules = _build_interaction_scoring_rules(
         constitution_text,
@@ -79,7 +113,7 @@ def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
         state_machine_text,
     )
 
-    return PlanningOutputPackage(
+    package = PlanningOutputPackage(
         service_meta=ServiceMeta(
             service_name=service_name,
             target_user=_extract_target_user(constitution_text),
@@ -87,8 +121,8 @@ def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
             version=version,
         ),
         content_spec=ContentSpec(
-            content_types=_extract_content_types(data_schema),
-            total_count=_extract_total_count(data_schema),
+            content_types=content_types,
+            total_count=total_count,
             items_per_type=_extract_items_per_type(data_schema),
             difficulty_levels=_extract_difficulty_levels(data_schema),
         ),
@@ -98,17 +132,23 @@ def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
             score_rules=score_rules,
         ),
         interaction_spec=InteractionSpec(
-            session_structure=_extract_session_structure(state_machine_text),
-            state_transitions=_extract_state_transitions(state_machine_text),
+            session_structure=_extract_session_structure(
+                state_machine_text,
+                state_machine_sections,
+            ),
+            state_transitions=_extract_state_transitions(
+                state_machine_text,
+                state_machine_sections,
+            ),
             scoring_rules=interaction_scoring_rules,
         ),
         interface_spec=InterfaceSpec(
-            screens=_extract_screens(interface_sections),
-            api_endpoints=_extract_api_endpoints(interface_spec_text),
+            screens=screens,
+            api_endpoints=api_endpoints,
         ),
         llm_spec=LLMSpec(
-            generation_prompt=_extract_generation_prompt(prompt_spec_text, prompt_sections),
-            evaluation_prompt=_extract_evaluation_prompt(prompt_spec_text, prompt_sections),
+            generation_prompt=generation_prompt,
+            evaluation_prompt=evaluation_prompt,
         ),
         test_spec=TestSpec(
             test_file_path=EXPECTED_FILES["pytest_file"] if pytest_path.exists() else "",
@@ -116,6 +156,14 @@ def load_planning_package(package_dir: Path) -> PlanningOutputPackage:
         ),
         constraints=_extract_constraints(constitution_sections),
     )
+    extraction_metadata = {
+        "service_name_source": service_name_source,
+        "content_types_source": content_types_source,
+        "total_count_source": total_count_source,
+        "screens_source": screens_source,
+        "api_endpoints_source": api_endpoints_source,
+    }
+    return package, extraction_metadata
 
 
 def load_input_intake(
@@ -125,7 +173,7 @@ def load_input_intake(
     """Load, validate, and normalize a planning package before the 6-agent pipeline."""
 
     try:
-        package = load_planning_package(package_dir)
+        package, extraction_metadata = _load_planning_package_components(package_dir)
         implementation_spec = planning_package_to_implementation_spec(package, package_dir)
     except FileNotFoundError as exc:
         return build_failed_input_intake_result(
@@ -144,6 +192,7 @@ def load_input_intake(
         package=package,
         package_dir=package_dir,
         implementation_spec=implementation_spec,
+        extraction_metadata=extraction_metadata,
         quality_judge=quality_judge or DeterministicInputQualityJudge(),
     )
 
@@ -189,11 +238,43 @@ def _read_json(path: Path) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def _read_nested_value(payload: dict, path: list[str]):
+    current = payload
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return None
+        current = current[key]
+    return current
+
+
+def _coerce_string_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        stripped = item.strip()
+        if stripped and stripped not in result:
+            result.append(stripped)
+    return result
+
+
 def _split_service_slug(directory_name: str) -> tuple[str, str]:
     match = re.match(r"^(?P<name>.+?)(?:[_-](?P<version>v\d+(?:\.\d+)*))?$", directory_name)
     if not match:
         return directory_name, ""
     return match.group("name") or directory_name, match.group("version") or ""
+
+
+def _extract_service_name(data_schema: dict, package_dir: Path) -> tuple[str, str, str]:
+    slug_name, version = _split_service_slug(package_dir.name)
+    meta_service_name = _read_nested_value(data_schema, ["_meta", "service_name"])
+    if isinstance(meta_service_name, str) and meta_service_name.strip():
+        return meta_service_name.strip(), version, SERVICE_NAME_PATHS[0]
+    if slug_name:
+        return slug_name, version, SERVICE_NAME_PATHS[1]
+    return package_dir.name, version, SERVICE_NAME_PATHS[2]
 
 
 def _parse_markdown_sections(text: str) -> dict[str, list[str]]:
@@ -361,28 +442,52 @@ def _build_interaction_scoring_rules(
     }
 
 
-def _extract_content_types(data_schema: dict) -> list[str]:
-    return (
-        data_schema.get("definitions", {})
-        .get("Quest", {})
-        .get("fields", {})
-        .get("quest_type", {})
-        .get("values", [])
-    ) or []
+def _extract_content_types(data_schema: dict) -> tuple[list[str], str]:
+    quest_types = _coerce_string_list(
+        _read_nested_value(
+            data_schema,
+            ["definitions", "Quest", "fields", "quest_type", "values"],
+        )
+    )
+    if quest_types:
+        return quest_types, CONTENT_TYPES_PATHS[0]
+
+    output_modes = _coerce_string_list(
+        _read_nested_value(
+            data_schema,
+            ["output", "mode", "allowed_values"],
+        )
+    )
+    if output_modes:
+        return output_modes, CONTENT_TYPES_PATHS[1]
+
+    return [], ""
 
 
-def _extract_total_count(data_schema: dict) -> int:
+def _extract_total_count(
+    data_schema: dict,
+    *,
+    content_types: list[str],
+    content_types_source: str,
+) -> tuple[int, str]:
     session_fields = (
         data_schema.get("definitions", {})
         .get("Session", {})
         .get("fields", {})
-        .get("quest_ids", {})
     )
-    min_length = session_fields.get("min_length")
-    max_length = session_fields.get("max_length")
-    if min_length == max_length and isinstance(min_length, int):
-        return min_length
-    return 0
+    for field_name in ("quest_ids", "quest_sequence"):
+        field = session_fields.get(field_name, {})
+        min_length = field.get("min_length")
+        max_length = field.get("max_length")
+        if min_length == max_length and isinstance(min_length, int):
+            return (
+                min_length,
+                f"data_schema.definitions.Session.fields.{field_name}.min_length|max_length",
+            )
+
+    if content_types_source == CONTENT_TYPES_PATHS[1] and content_types:
+        return len(content_types), "derived_from_mode_allowed_values_count"
+    return 0, ""
 
 
 def _extract_items_per_type(data_schema: dict) -> int:
@@ -415,28 +520,78 @@ def _extract_difficulty_levels(data_schema: dict) -> list[str]:
     ) or []
 
 
-def _extract_session_structure(text: str) -> list[str]:
+def _extract_session_structure(
+    text: str,
+    sections: dict[str, list[str]] | None = None,
+) -> list[str]:
+    sections = sections or _parse_markdown_sections(text)
+    state_lines = _find_section_lines(sections, "상태 목록")
+    states: list[str] = []
+    for line in state_lines:
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        parts = [cell.strip() for cell in stripped.strip("|").split("|")]
+        if not parts:
+            continue
+        candidate = parts[0].strip().strip("`")
+        if candidate in {"상태명", "---", "—"}:
+            continue
+        if re.fullmatch(r"[A-Za-z0-9_]+", candidate):
+            states.append(candidate)
+    if states:
+        return states
+
     matches = re.findall(r"\[(SESSION_START|QUEST_\d+_(?:ACTIVE|FEEDBACK)|SESSION_COMPLETED)\]", text)
     return matches or []
 
 
-def _extract_state_transitions(text: str) -> list[str]:
-    states = _extract_session_structure(text)
+def _extract_state_transitions(
+    text: str,
+    sections: dict[str, list[str]] | None = None,
+) -> list[str]:
+    states = _extract_session_structure(text, sections)
     return [f"{current}->{next_state}" for current, next_state in zip(states, states[1:])]
 
 
-def _extract_screens(sections: dict[str, list[str]]) -> list[str]:
+def _extract_screens(
+    sections: dict[str, list[str]],
+    interface_text: str,
+    state_machine_sections: dict[str, list[str]],
+    state_machine_text: str,
+) -> tuple[list[str], str]:
     lines = _find_section_lines(sections, "화면 구성 개요")
     screens: list[str] = []
     for line in lines:
         matches = re.findall(r"`(S\d+)`", line)
         screens.extend(matches)
-    return screens
+    if screens:
+        return _dedupe_strings(screens), "interface_spec.screen_overview"
+
+    screen_labels = re.findall(r"\*\*([^*\n]+화면[^*\n]*)\*\*", interface_text)
+    screen_labels.extend(
+        match.strip()
+        for match in re.findall(r"^###\s+(.+)$", interface_text, re.MULTILINE)
+        if "화면" in match and "기준" not in match
+    )
+    if screen_labels:
+        return _dedupe_strings(screen_labels), "interface_spec.screen_labels"
+
+    state_names = _extract_session_structure(state_machine_text, state_machine_sections)
+    if state_names:
+        return _dedupe_strings(state_names), "state_machine.state_names"
+    return [], ""
 
 
-def _extract_api_endpoints(text: str) -> list[str]:
+def _extract_api_endpoints(text: str) -> tuple[list[str], str]:
     endpoints = re.findall(r"\*\*Endpoint\*\*:\s*`(?:[A-Z]+)\s+([^`]+)`", text)
-    return [endpoint.split("?")[0] for endpoint in endpoints] if endpoints else []
+    if endpoints:
+        return _dedupe_strings([endpoint.split("?")[0] for endpoint in endpoints]), "interface_spec.endpoint_label"
+
+    generic_matches = re.findall(r"(?m)^\s*(?:GET|POST|PUT|DELETE|PATCH)\s+(/[^`\s]+)", text)
+    if generic_matches:
+        return _dedupe_strings([endpoint.split("?")[0] for endpoint in generic_matches]), "interface_spec.http_method_lines"
+    return [], ""
 
 
 def _extract_generation_prompt(text: str, sections: dict[str, list[str]]) -> str:
@@ -445,6 +600,14 @@ def _extract_generation_prompt(text: str, sections: dict[str, list[str]]) -> str
     prompts = [prompt for prompt in [intro_prompt, main_prompt] if prompt]
     if prompts:
         return "\n\n".join(prompts)
+    common_prompt = _extract_code_block_after_heading_contains(text, "공통 시스템 프롬프트")
+    mode_prompts = [
+        _extract_code_block_after_heading_contains(text, "되묻기 모드"),
+        _extract_code_block_after_heading_contains(text, "완료 모드"),
+    ]
+    generic_prompts = [prompt for prompt in [common_prompt, *mode_prompts] if prompt]
+    if generic_prompts:
+        return "\n\n".join(generic_prompts)
     return _section_text(sections, "퀘스트 생성 프롬프트")
 
 
@@ -452,6 +615,9 @@ def _extract_evaluation_prompt(text: str, sections: dict[str, list[str]]) -> str
     prompt = _extract_code_block_after_heading(text, "### 2.1. 질문 개선형 답변 평가")
     if prompt:
         return prompt
+    mode_prompt = _extract_code_block_after_heading_contains(text, "완료 모드")
+    if mode_prompt:
+        return mode_prompt
     return _section_text(sections, "답변 평가 프롬프트")
 
 
@@ -459,6 +625,28 @@ def _extract_code_block_after_heading(text: str, heading: str) -> str:
     pattern = re.escape(heading) + r".*?#### System Prompt\s*```(?:\w+)?\n(.*?)```"
     match = re.search(pattern, text, re.DOTALL)
     return match.group(1).strip() if match else ""
+
+
+def _extract_code_block_after_heading_contains(text: str, heading_fragment: str) -> str:
+    pattern = (
+        r"^#{2,3}\s+[^\n]*"
+        + re.escape(heading_fragment)
+        + r"[^\n]*\n(?:.*?\n)*?```(?:\w+)?\n(.*?)```"
+    )
+    match = re.search(pattern, text, re.DOTALL | re.MULTILINE)
+    return match.group(1).strip() if match else ""
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        stripped = value.strip()
+        if not stripped or stripped in seen:
+            continue
+        seen.add(stripped)
+        result.append(stripped)
+    return result
 
 
 def _extract_acceptance_criteria(pytest_text: str) -> list[str]:
