@@ -8,7 +8,7 @@ from agents.implementation.prototype_builder_agent import (
     run_prototype_builder_agent,
 )
 from loaders import load_input_intake, load_planning_package, planning_package_to_implementation_spec
-from orchestrator.app_source import build_content_filename
+from orchestrator.app_source import build_content_filename, build_streamlit_app_source
 from schemas.implementation.content_interaction import ContentInteractionOutput
 from schemas.implementation.prototype_builder import PrototypeBuilderInput
 from schemas.implementation.requirement_mapping import RequirementMappingOutput
@@ -45,6 +45,34 @@ def _build_package_content_output(
 
 def _extract_function_block(source: str, name: str, next_name: str) -> str:
     return source.split(f"def {name}", 1)[1].split(f"def {next_name}", 1)[0]
+
+
+def _build_chatbot_builder_input(fake: FakeLLMClient) -> PrototypeBuilderInput:
+    intake_result = load_input_intake(CHATBOT_PACKAGE_DIR)
+    assert intake_result.implementation_spec is not None
+    spec = intake_result.implementation_spec
+    content_output = fake.generate_json(
+        prompt="\n".join(
+            [
+                f"- service_name: {spec.service_name}",
+                f"- content_types: {json.dumps(spec.core_features, ensure_ascii=False)}",
+                f"- learning_goals: {json.dumps(spec.learning_goals, ensure_ascii=False)}",
+                f"- total_count: {spec.total_count}",
+                "- items_per_type: 0",
+                "- interaction_mode: coaching",
+            ]
+        ),
+        response_model=ContentInteractionOutput,
+    )
+    return PrototypeBuilderInput(
+        spec_intake_output=fake.generate_json(prompt="", response_model=SpecIntakeOutput),
+        requirement_mapping_output=fake.generate_json(
+            prompt="",
+            response_model=RequirementMappingOutput,
+        ),
+        content_interaction_output=content_output,
+        implementation_spec=spec,
+    )
 
 
 def test_prototype_builder_materializes_llm_generated_app_from_planning_package() -> None:
@@ -254,6 +282,101 @@ def test_general_mode_without_items_does_not_force_coaching_runtime_contract() -
     assert "api_chat_submit" not in contract.required_functions
     assert "SCREEN_FOLLOW_UP" not in contract.required_screen_constants
     assert "SCREEN_MULTIPLE_CHOICE_RESULT" in contract.required_screen_constants
+
+
+def test_prototype_builder_repairs_single_missing_marker_without_fallback() -> None:
+    fake = FakeLLMClient()
+    builder_input = _build_chatbot_builder_input(fake)
+    spec = builder_input.implementation_spec
+    content_filename = build_content_filename(spec.service_name)
+    valid_source = build_streamlit_app_source(
+        spec.service_name,
+        content_filename,
+        interaction_mode="coaching",
+    )
+    invalid_source = valid_source.replace(
+        '        st.session_state.current_screen = SCREEN_ERROR\n',
+        "",
+        1,
+    )
+    repair_fake = FakeLLMClient(app_source=invalid_source, patch_source=valid_source)
+
+    output = run_prototype_builder_agent(builder_input, repair_fake)
+
+    assert output.generation_mode == "llm_generated"
+    assert output.fallback_used is False
+    assert output.reflection_attempts == 1
+    assert output.repair_attempted is True
+    assert output.initial_validation_error_code == "COACHING_FLOW_MISSING"
+    assert output.repair_validation_error_code == ""
+    assert any("Repair attempt 1 succeeded" in entry for entry in output.repair_history)
+
+
+def test_prototype_builder_stops_early_when_same_error_repeats() -> None:
+    fake = FakeLLMClient()
+    builder_input = _build_chatbot_builder_input(fake)
+    spec = builder_input.implementation_spec
+    content_filename = build_content_filename(spec.service_name)
+    valid_source = build_streamlit_app_source(
+        spec.service_name,
+        content_filename,
+        interaction_mode="coaching",
+    )
+    invalid_source = valid_source.replace(
+        '        st.session_state.current_screen = SCREEN_ERROR\n',
+        "",
+        1,
+    )
+    repair_fake = FakeLLMClient(
+        app_source=invalid_source,
+        repair_sources=[invalid_source, valid_source],
+    )
+
+    output = run_prototype_builder_agent(builder_input, repair_fake)
+
+    assert output.generation_mode == "fallback_template"
+    assert output.fallback_used is True
+    assert output.reflection_attempts == 1
+    assert output.repair_attempted is True
+    assert output.initial_validation_error_code == "COACHING_FLOW_MISSING"
+    assert output.repair_validation_error_code == "COACHING_FLOW_MISSING"
+    assert any("same validation error code repeated" in entry for entry in output.repair_history)
+
+
+def test_prototype_builder_allows_second_repair_when_failure_changes() -> None:
+    fake = FakeLLMClient()
+    builder_input = _build_chatbot_builder_input(fake)
+    spec = builder_input.implementation_spec
+    content_filename = build_content_filename(spec.service_name)
+    valid_source = build_streamlit_app_source(
+        spec.service_name,
+        content_filename,
+        interaction_mode="coaching",
+    )
+    root_first_source = valid_source.replace(
+        "CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]",
+        "CONTENT_CANDIDATE_PATHS = [FALLBACK_OUTPUT_PATH, OUTPUT_PATH]",
+        1,
+    )
+    missing_error_transition_source = valid_source.replace(
+        '        st.session_state.current_screen = SCREEN_ERROR\n',
+        "",
+        1,
+    )
+    repair_fake = FakeLLMClient(
+        app_source=root_first_source,
+        repair_sources=[missing_error_transition_source, valid_source],
+    )
+
+    output = run_prototype_builder_agent(builder_input, repair_fake)
+
+    assert output.generation_mode == "llm_generated"
+    assert output.fallback_used is False
+    assert output.reflection_attempts == 2
+    assert output.repair_attempted is True
+    assert output.initial_validation_error_code == "ROOT_FIRST_CONTENT_LOADING"
+    assert len(output.repair_history) >= 3
+    assert any("Repair attempt 2 succeeded" in entry for entry in output.repair_history)
 
 
 def test_prototype_builder_uses_fallback_when_llm_call_fails() -> None:
