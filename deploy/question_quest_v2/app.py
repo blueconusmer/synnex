@@ -341,6 +341,7 @@ def main():
             st.session_state.session_data["evaluation"] = result.get("evaluation", {})
             st.session_state.session_data["earned_score"] = result.get("earned_score", 0)
             st.session_state.session_data["current_quest_index"] += 1
+            st.session_state.current_quest_index += 1
             st.session_state.current_screen = SCREEN_MULTIPLE_CHOICE_RESULT
             st.rerun()
     
@@ -395,6 +396,7 @@ def main():
                 st.session_state.session_data["evaluation"] = result.get("evaluation", {})
                 st.session_state.session_data["earned_score"] = result.get("earned_score", 0)
                 st.session_state.session_data["current_quest_index"] += 1
+                st.session_state.current_quest_index += 1
                 st.session_state.current_screen = SCREEN_IMPROVEMENT_RESULT
                 st.rerun()
     
