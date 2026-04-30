@@ -4,27 +4,29 @@
     "korean_name": "구현 명세서 분석 Agent"
   },
   "team_identity": "교육 서비스 구현 전문 AI Agent 팀",
-  "service_summary": "Question Coaching Chatbot은 Streamlit 프레임워크 기반으로 사용자의 질문 구체성, 맥락성, 목적성을 단계적으로 진단 및 코칭하는 교육 서비스입니다. 질문 입력 → 진단 → 3단계 되묻기(구체성/맥락성/목적성) → 완료 상태의 상호작용 흐름을 구현하며, /api/chat 엔드포인트를 통해 챗봇 기능을 제공합니다.",
+  "service_summary": "Question Coaching Chatbot은 학생들이 AI에 질문할 때 주제/상황/원하는 답의 형태를 구조화하는 능력을 훈련시키는 서비스입니다. 정답 제공 대신 질문 다듬기 경험을 순차적으로 유도하며, Streamlit 프레임워크로 구현됩니다.",
   "normalized_requirements": [
-    "서비스 목적: 사용자 질문의 구체성/맥락성/목적성 진단 및 코칭",
-    "대상 사용자: 명확한 질문 작성이 필요한 학습자 및 교육자",
-    "학습 목표: 질문의 구체성, 맥락성, 목적성 향상",
-    "핵심 기능: 질문 진단(need_specificity/need_context/need_purpose) → 완료(completed) 상태 관리",
-    "상호작용 흐름: awaiting_input → diagnosing → need_specificity → need_context → need_purpose → completed",
-    "제외 범위: 명시된 제외 사항 없음",
-    "제약 조건: 본 명세서는 모든 후속 문서보다 우선하며, 서비스 변경 시 본 명세서와의 정합성 필수 검토"
+    "AI 사용법 강의가 아닌 질문 구조화 훈련 경험 제공",
+    "주제/상황/원하는 답의 형태 3요소 포함 질문 작성 유도",
+    "순차적 보완 원칙: 한 번에 하나의 부족 요소만 지적",
+    "기준 충족 시 즉시 다음 단계로 진행",
+    "평가적 표현 배제 및 성장적 표현 사용",
+    "4가지 핵심 상태(need_specificity, need_context, need_purpose, completed) 구현",
+    "상태 전이 규칙(6개 경로) 준수: awaiting_input → diagnosing → need_specificity → need_context → need_purpose → completed",
+    "오류 시 completed → error 상태 처리",
+    "3가지 학습 목표(구체성, 맥락성, 목적성) 반영"
   ],
   "delivery_expectations": [
-    "질문 입력 화면 구현",
-    "되묻기 화면 구현 (3가지 모드: need_specificity/need_context/need_purpose)",
-    "재요청 결과 화면 구현 (mode: completed)",
-    "/api/chat 엔드포인트 개발",
-    "Streamlit 기반 UI/UX 구현"
+    "질문 입력 화면",
+    "3가지 모드(need_specificity/need_context/need_purpose) 되묻기 화면",
+    "재요청 결과 화면(mode: completed)",
+    "/api/chat 엔드포인트"
   ],
   "acceptance_focus": [
-    "3단계 되묻기 기능의 정확한 상태 전이 검증",
-    "질문 진단 로직의 학습 목표(구체성/맥락성/목적성) 충족도 확인",
-    "Streamlit 프레임워크와의 기술적 정합성 검증",
-    "명세서와의 충돌 없는 구현 여부 확인"
+    "순차적 질문 보완 프로세스 검증",
+    "상태 전이 규칙 준수 확인",
+    "성장적 표현 사용 여부 검증",
+    "API 엔드포인트 동작 테스트",
+    "4가지 핵심 원칙 준수 여부 확인"
   ]
 }

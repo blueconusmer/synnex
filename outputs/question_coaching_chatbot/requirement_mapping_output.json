@@ -4,42 +4,33 @@
     "korean_name": "구현 요구사항 정리 Agent"
   },
   "implementation_targets": [
-    "질문 입력 화면 구현",
-    "되묻기 화면 구현 (3가지 모드: need_specificity/need_context/need_purpose)",
-    "재요청 결과 화면 구현 (mode: completed)",
-    "/api/chat 엔드포인트 개발",
-    "Streamlit 기반 UI/UX 구현"
+    "Streamlit UI with 4 core states (need_specificity, need_context, need_purpose, completed)",
+    "State transition logic with 6 normal paths and 1 error path",
+    "Session state management using st.session_state.current_screen",
+    "API endpoint /api/chat for question processing",
+    "Growth-oriented feedback language system",
+    "3-phase question refinement workflow"
   ],
   "file_plan": [
     {
-      "path": "app/main.py",
-      "purpose": "Streamlit 기반 UI/UX 및 상태 관리 구현",
-      "producing_agent": "Spec Intake Agent"
+      "path": "app.py",
+      "purpose": "Main Streamlit application with UI components and state management",
+      "producing_agent": "Prototype Builder"
     },
     {
-      "path": "app/api/chat.py",
-      "purpose": "/api/chat 엔드포인트 개발 및 질문 진단 로직 구현",
-      "producing_agent": "Spec Intake Agent"
+      "path": "api/chat.py",
+      "purpose": "Question processing API endpoint with state transition logic",
+      "producing_agent": "Prototype Builder"
     },
     {
-      "path": "app/static/question_flow.json",
-      "purpose": "상호작용 흐름 상태 정의 및 전이 규칙 관리",
-      "producing_agent": "Spec Intake Agent"
+      "path": "core/state_machine.py",
+      "purpose": "Centralized state transition rules and validation logic",
+      "producing_agent": "Prototype Builder"
     },
     {
-      "path": "app/templates/question_input.py",
-      "purpose": "질문 입력 화면 템플릿 구현",
-      "producing_agent": "Spec Intake Agent"
-    },
-    {
-      "path": "app/templates/reask_screens.py",
-      "purpose": "3단계 되묻기 화면 템플릿 구현",
-      "producing_agent": "Spec Intake Agent"
-    },
-    {
-      "path": "app/templates/completed.py",
-      "purpose": "재요청 결과 화면 템플릿 구현",
-      "producing_agent": "Spec Intake Agent"
+      "path": "content/feedback_templates.py",
+      "purpose": "Growth-oriented feedback message templates for each state",
+      "producing_agent": "Content Generator"
     }
   ],
   "quiz_generation_requirements": {
@@ -47,24 +38,28 @@
     "items_per_type": 5,
     "total_items": 15,
     "required_fields": [
-      "question_type",
-      "diagnosis_criteria",
-      "coaching_prompt",
-      "expected_outcome"
+      "question_template",
+      "target_phase",
+      "feedback_type",
+      "example_response"
     ]
   },
   "app_constraints": [
-    "Streamlit 프레임워크 기반 구현 필수",
-    "상태 전이: awaiting_input → diagnosing → need_specificity/need_context/need_purpose → completed",
-    "질문 진단 로직은 구체성/맥락성/목적성 3가지 기준 충족",
-    "명세서와의 정합성 검증 필수",
-    "UI/UX는 학습자 및 교육자 친화적 설계"
+    "Mandatory session state variable: st.session_state.current_screen with values: 'awaiting_input', 'diagnosing', 'need_specificity', 'need_context', 'need_purpose', 'completed', 'error'",
+    "State transition paths: awaiting_input → diagnosing → (need_specificity/need_context/need_purpose) → completed",
+    "Error transition: completed → error on validation failure",
+    "State transition must be implemented as: st.session_state.current_screen = NEW_STATE",
+    "UI must render different components based on st.session_state.current_screen value",
+    "API must return JSON with 'current_screen' field for state tracking",
+    "Feedback messages must use growth-oriented language patterns",
+    "Each state must validate exactly one question element (specificity/context/purpose)"
   ],
   "test_strategy": [
-    "상태 전이 테스트: 모든 가능한 경로 검증",
-    "질문 진단 로직 테스트: 학습 목표(구체성/맥락성/목적성) 충족도 확인",
-    "API 통합 테스트: /api/chat 엔드포인트 응답 검증",
-    "UI/UX 테스트: Streamlit 프레임워크와의 기술적 정합성 검증",
-    "명세서 충돌 검증: 모든 구현 항목이 명세서와 일치하는지 확인"
+    "UI state transition test: Verify screen changes when question elements are missing",
+    "API state validation: Check /api/chat returns correct current_screen value",
+    "Error handling test: Simulate invalid state transitions to trigger error state",
+    "Feedback language audit: Verify all messages use growth-oriented expressions",
+    "Validation rule test: Confirm only one element is addressed per coaching cycle",
+    "End-to-end flow test: Complete full question refinement from awaiting_input to completed"
   ]
 }

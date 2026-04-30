@@ -30,6 +30,9 @@ FALLBACK_USED = "FALLBACK_USED"
 CONTRACT_MISSING_MARKER = "CONTRACT_MISSING_MARKER"
 RESULT_FLOW_MISSING = "RESULT_FLOW_MISSING"
 BATTLE_FLOW_MISSING = "BATTLE_FLOW_MISSING"
+COACHING_FLOW_MISSING = "COACHING_FLOW_MISSING"
+INTERACTION_UNITS_RUNTIME_MISSING = "INTERACTION_UNITS_RUNTIME_MISSING"
+LEGACY_QUEST_RUNTIME_ACCESS = "LEGACY_QUEST_RUNTIME_ACCESS"
 ROOT_FIRST_CONTENT_LOADING = "ROOT_FIRST_CONTENT_LOADING"
 RAW_FIELD_ACCESS = "RAW_FIELD_ACCESS"
 INVALID_STREAMLIT_API = "INVALID_STREAMLIT_API"
@@ -48,11 +51,14 @@ class BuilderRuntimeContract:
     required_markers: list[str]
     required_transition_assignments: list[str]
     required_functions: list[str]
+    required_runtime_literals: list[str]
+    forbidden_runtime_literals: list[str]
     forbidden_raw_runtime_fields: list[str]
     normalized_runtime_field_mapping: dict[str, str]
     quest_sequence: list[str]
     requires_battle: bool
     requires_session_result: bool
+    interaction_mode: str
 
     def to_prompt_block(self) -> str:
         return "\n".join(
@@ -64,11 +70,14 @@ class BuilderRuntimeContract:
                 f"  - required_markers: {json.dumps(self.required_markers, ensure_ascii=False)}",
                 f"  - required_transition_assignments: {json.dumps(self.required_transition_assignments, ensure_ascii=False)}",
                 f"  - required_functions: {json.dumps(self.required_functions, ensure_ascii=False)}",
+                f"  - required_runtime_literals: {json.dumps(self.required_runtime_literals, ensure_ascii=False)}",
+                f"  - forbidden_runtime_literals: {json.dumps(self.forbidden_runtime_literals, ensure_ascii=False)}",
                 f"  - forbidden_raw_runtime_fields: {json.dumps(self.forbidden_raw_runtime_fields, ensure_ascii=False)}",
                 f"  - normalized_runtime_field_mapping: {json.dumps(self.normalized_runtime_field_mapping, ensure_ascii=False)}",
                 f"  - quest_sequence: {json.dumps(self.quest_sequence, ensure_ascii=False)}",
                 f"  - requires_battle: {json.dumps(self.requires_battle)}",
                 f"  - requires_session_result: {json.dumps(self.requires_session_result)}",
+                f"  - interaction_mode: {json.dumps(self.interaction_mode)}",
             ]
         )
 
@@ -77,6 +86,7 @@ class BuilderRuntimeContract:
         return (
             f"screens={len(self.required_screen_constants)}, "
             f"battle_required={str(self.requires_battle).lower()}, "
+            f"interaction_mode={self.interaction_mode}, "
             f"quest_sequence={quest_sequence}"
         )
 
@@ -249,6 +259,7 @@ def build_fallback_app_source(input_model: PrototypeBuilderInput) -> str:
         return build_streamlit_app_source(
             service_name=service_name,
             content_filename=content_filename,
+            interaction_mode=input_model.content_interaction_output.interaction_mode,
             screens=list(package.interface_spec.screens),
             api_endpoints=list(package.interface_spec.api_endpoints),
             score_rules=score_rules,
@@ -259,6 +270,7 @@ def build_fallback_app_source(input_model: PrototypeBuilderInput) -> str:
     return build_streamlit_app_source(
         service_name=service_name,
         content_filename=content_filename,
+        interaction_mode=input_model.content_interaction_output.interaction_mode,
     )
 
 
@@ -513,6 +525,7 @@ def _validate_generated_app_source(
             f"app_source is not valid Python: {exc.msg} at line {exc.lineno}."
         ) from exc
     _validate_state_machine_contract(app_source, builder_runtime_contract)
+    _validate_runtime_content_contract(app_source, builder_runtime_contract)
     _validate_function_call_arity(
         app_source=app_source,
         function_name="evaluate_improvement_question",
@@ -570,6 +583,29 @@ def _validate_state_machine_contract(
                 "app_source must use normalized quest fields only; "
                 f"found raw field reference {pattern} outside normalization helpers.",
                 contract_items=[pattern],
+            )
+
+
+def _validate_runtime_content_contract(
+    app_source: str,
+    builder_runtime_contract: BuilderRuntimeContract,
+) -> None:
+    normalized = _normalize_source_for_contract_checks(app_source)
+    for literal in builder_runtime_contract.required_runtime_literals:
+        normalized_literal = _normalize_source_for_contract_checks(literal)
+        if normalized_literal not in normalized:
+            raise InvalidAppSourceError(
+                _classify_contract_issue(literal),
+                f"app_source must include runtime contract literal: {literal}.",
+                contract_items=[literal],
+            )
+    for literal in builder_runtime_contract.forbidden_runtime_literals:
+        normalized_literal = _normalize_source_for_contract_checks(literal)
+        if normalized_literal in normalized:
+            raise InvalidAppSourceError(
+                LEGACY_QUEST_RUNTIME_ACCESS,
+                f"app_source must not use legacy quiz runtime access pattern: {literal}.",
+                contract_items=[literal],
             )
 
 
@@ -803,6 +839,7 @@ def _build_builder_runtime_contract(
     content_filename: str,
     package_context: dict[str, str],
 ) -> BuilderRuntimeContract:
+    interaction_mode = input_model.content_interaction_output.interaction_mode
     quest_sequence = [item.quiz_type for item in input_model.content_interaction_output.items]
     if not quest_sequence:
         quest_sequence = [
@@ -815,6 +852,39 @@ def _build_builder_runtime_contract(
             for unit in input_model.content_interaction_output.interaction_units
         ]
         quest_sequence = [value for value in quest_sequence if value]
+
+    uses_interaction_units_runtime = (
+        interaction_mode == "coaching"
+        and not input_model.content_interaction_output.items
+    )
+    if uses_interaction_units_runtime:
+        return BuilderRuntimeContract(
+            content_filename=content_filename,
+            interface_screen_ids=_extract_interface_screen_ids(package_context.get("interface_spec", "")),
+            required_screen_constants=[
+                "SCREEN_START",
+                "SCREEN_INPUT",
+                "SCREEN_FOLLOW_UP",
+                "SCREEN_RESULT",
+                "SCREEN_ERROR",
+            ],
+            required_markers=["current_screen", "st.rerun()"],
+            required_transition_assignments=[
+                "st.session_state.current_screen = SCREEN_INPUT",
+                "st.session_state.current_screen = SCREEN_FOLLOW_UP",
+                "st.session_state.current_screen = SCREEN_RESULT",
+                "st.session_state.current_screen = SCREEN_ERROR",
+            ],
+            required_functions=["api_session_start", "api_chat_submit", "api_session_result"],
+            required_runtime_literals=['get("interaction_units"', "interaction_units", "def api_chat_submit"],
+            forbidden_runtime_literals=['get("quests"', "['quests']", '["quests"]'],
+            forbidden_raw_runtime_fields=[],
+            normalized_runtime_field_mapping={},
+            quest_sequence=quest_sequence,
+            requires_battle=False,
+            requires_session_result=True,
+            interaction_mode=interaction_mode,
+        )
 
     requires_battle = "battle" in quest_sequence or any(
         "battle" in note.lower() for note in input_model.content_interaction_output.flow_notes
@@ -854,6 +924,8 @@ def _build_builder_runtime_contract(
         required_markers=["current_screen", "st.rerun()"],
         required_transition_assignments=required_transition_assignments,
         required_functions=["api_session_start", "api_quest_submit", "api_session_result"],
+        required_runtime_literals=[],
+        forbidden_runtime_literals=[],
         forbidden_raw_runtime_fields=[
             'quest["item_id"]',
             "quest['item_id']",
@@ -875,6 +947,7 @@ def _build_builder_runtime_contract(
         quest_sequence=quest_sequence,
         requires_battle=requires_battle,
         requires_session_result=True,
+        interaction_mode=interaction_mode,
     )
 
 
@@ -935,6 +1008,14 @@ def _build_repair_guidance(
         guidance.append(
             "If a required screen constant or transition is missing, add the literal constant name and literal st.session_state.current_screen assignment."
         )
+    if validation_error.code in {COACHING_FLOW_MISSING, INTERACTION_UNITS_RUNTIME_MISSING}:
+        guidance.append(
+            "For interaction-unit/coaching flows, read content['interaction_units'], keep current_screen transitions explicit, and implement api_chat_submit instead of quiz-style quest submission."
+        )
+    if validation_error.code == LEGACY_QUEST_RUNTIME_ACCESS:
+        guidance.append(
+            "Remove legacy content.get('quests') style access and drive runtime flow from interaction_units instead."
+        )
     if validation_error.code == PYTHON_SYNTAX_INVALID:
         guidance.append("Fix Python syntax first, then preserve all required screen constants and transitions.")
     return json.dumps(guidance, ensure_ascii=False, indent=2)
@@ -952,6 +1033,10 @@ def _extract_interface_screen_ids(interface_spec: str) -> list[str]:
 
 
 def _classify_contract_issue(contract_item: str) -> str:
+    if "interaction_units" in contract_item:
+        return INTERACTION_UNITS_RUNTIME_MISSING
+    if any(token in contract_item for token in ("SCREEN_INPUT", "SCREEN_FOLLOW_UP", "SCREEN_RESULT", "SCREEN_ERROR", "api_chat_submit")):
+        return COACHING_FLOW_MISSING
     if "BATTLE" in contract_item:
         return BATTLE_FLOW_MISSING
     if any(token in contract_item for token in ("IMPROVEMENT_RESULT", "MULTIPLE_CHOICE_RESULT", "SESSION_RESULT")):

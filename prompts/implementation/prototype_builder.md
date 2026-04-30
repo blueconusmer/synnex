@@ -66,6 +66,8 @@ builder_runtime_contract:
 - `interaction_units`는 화면 흐름 생성을 위한 primary contract다.
 - 화면 흐름은 `interaction_units`의 순서, `interaction_type`, `next_step`, `metadata`를 기준으로 구성한다.
 - `interaction_mode`는 secondary hint only다. quiz/coaching 전용 deterministic template을 새로 만들지 말고, `interaction_units` 계약을 우선 해석하라.
+- `items`가 비어 있고 `interaction_units`가 존재하면, 런타임 콘텐츠 컬렉션은 반드시 `interaction_units`여야 한다. 이 경우 `content.get("quests")` 또는 `data.get("quests")` 같은 legacy quiz 접근은 금지다.
+- coaching/non-quiz interaction flow에서는 `api_chat_submit`를 포함하고, `SCREEN_INPUT`, `SCREEN_FOLLOW_UP`, `SCREEN_RESULT`, `SCREEN_ERROR`와 `current_screen` 전이를 source에 literal하게 남겨라.
 - 위 `builder_runtime_contract`는 참고자료가 아니라 **반드시 소스에 literal marker와 transition assignment로 반영해야 하는 실행 계약**이다.
 - 세션 런타임 quest는 `quest_id`, `quest_type`, `difficulty`, `topic_context`, `original_question`, `options` 필드를 기준으로 동작해야 한다.
 - raw 콘텐츠 필드 `item_id`, `choices`는 정규화 단계에서만 사용하고, 제출/결과 화면 로직에서 직접 참조하지 않는다.

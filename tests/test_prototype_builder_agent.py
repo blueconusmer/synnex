@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agents.implementation.prototype_builder_agent import run_prototype_builder_agent
-from loaders import load_planning_package, planning_package_to_implementation_spec
+from agents.implementation.prototype_builder_agent import (
+    _build_builder_runtime_contract,
+    run_prototype_builder_agent,
+)
+from loaders import load_input_intake, load_planning_package, planning_package_to_implementation_spec
+from orchestrator.app_source import build_content_filename
 from schemas.implementation.content_interaction import ContentInteractionOutput
 from schemas.implementation.prototype_builder import PrototypeBuilderInput
 from schemas.implementation.requirement_mapping import RequirementMappingOutput
@@ -15,6 +19,7 @@ from tests.fakes import FakeLLMClient
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = REPO_ROOT / "inputs" / "mock_planning_outputs" / "question_quest_v0"
 QUEST_V2_PACKAGE_DIR = REPO_ROOT / "inputs" / "260429_퀘스트_v2"
+CHATBOT_PACKAGE_DIR = REPO_ROOT / "inputs" / "260428_챗봇"
 
 
 def _build_package_content_output(
@@ -155,6 +160,100 @@ def test_prototype_builder_materializes_llm_generated_v2_app_without_fallback() 
     assert "requires_battle: true" in prompt
     assert "required_screen_constants" in prompt
     assert "multiple_choice → situation_card → question_improvement → situation_card → battle" in prompt
+
+
+def test_prototype_builder_materializes_llm_generated_coaching_app_without_legacy_quests() -> None:
+    fake = FakeLLMClient()
+    intake_result = load_input_intake(CHATBOT_PACKAGE_DIR)
+    assert intake_result.implementation_spec is not None
+    spec = intake_result.implementation_spec
+    content_output = fake.generate_json(
+        prompt="\n".join(
+            [
+                f"- service_name: {spec.service_name}",
+                f"- content_types: {json.dumps(spec.core_features, ensure_ascii=False)}",
+                f"- learning_goals: {json.dumps(spec.learning_goals, ensure_ascii=False)}",
+                f"- total_count: {spec.total_count}",
+                "- items_per_type: 0",
+                "- interaction_mode: coaching",
+            ]
+        ),
+        response_model=ContentInteractionOutput,
+    )
+
+    output = run_prototype_builder_agent(
+        PrototypeBuilderInput(
+            spec_intake_output=fake.generate_json(prompt="", response_model=SpecIntakeOutput),
+            requirement_mapping_output=fake.generate_json(
+                prompt="",
+                response_model=RequirementMappingOutput,
+            ),
+            content_interaction_output=content_output,
+            implementation_spec=spec,
+        ),
+        fake,
+    )
+
+    source = output.generated_files[0].content
+
+    assert output.generation_mode == "llm_generated"
+    assert output.fallback_used is False
+    assert 'get("interaction_units"' in source
+    assert 'get("quests"' not in source
+    assert "api_chat_submit" in source
+    assert "SCREEN_INPUT" in source
+    assert "SCREEN_FOLLOW_UP" in source
+    assert "SCREEN_RESULT" in source
+    assert "SCREEN_ERROR" in source
+
+
+def test_general_mode_without_items_does_not_force_coaching_runtime_contract() -> None:
+    fake = FakeLLMClient()
+    intake_result = load_input_intake(CHATBOT_PACKAGE_DIR)
+    assert intake_result.implementation_spec is not None
+    spec = intake_result.implementation_spec
+    content_output = ContentInteractionOutput.model_validate(
+        {
+            "service_summary": "generic interaction service",
+            "interaction_mode": "general",
+            "interaction_mode_reason": "generic fallback",
+            "items": [],
+            "interaction_units": [
+                {
+                    "unit_id": "u1",
+                    "interaction_type": "display_content",
+                    "title": "intro",
+                    "learner_action": "",
+                    "system_response": "show intro",
+                    "input_format": "",
+                    "feedback_rule": "",
+                    "learning_dimension": "",
+                    "next_step": "END",
+                    "metadata": {},
+                }
+            ],
+            "flow_notes": ["generic interaction flow"],
+            "evaluation_rules": {"mode": "general"},
+        }
+    )
+
+    contract = _build_builder_runtime_contract(
+        input_model=PrototypeBuilderInput(
+            spec_intake_output=fake.generate_json(prompt="", response_model=SpecIntakeOutput),
+            requirement_mapping_output=fake.generate_json(
+                prompt="",
+                response_model=RequirementMappingOutput,
+            ),
+            content_interaction_output=content_output,
+            implementation_spec=spec,
+        ),
+        content_filename=build_content_filename(spec.service_name),
+        package_context={},
+    )
+
+    assert "api_chat_submit" not in contract.required_functions
+    assert "SCREEN_FOLLOW_UP" not in contract.required_screen_constants
+    assert "SCREEN_MULTIPLE_CHOICE_RESULT" in contract.required_screen_constants
 
 
 def test_prototype_builder_uses_fallback_when_llm_call_fails() -> None:
@@ -465,12 +564,16 @@ main()
 
 
 def test_prototype_builder_rejects_v2_source_without_battle_flow() -> None:
+    package = load_planning_package(QUEST_V2_PACKAGE_DIR)
+    spec = planning_package_to_implementation_spec(package, QUEST_V2_PACKAGE_DIR)
+    content_filename = build_content_filename(spec.service_name)
+
     missing_battle_source = '''from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
-CONTENT_FILENAME = "260429_퀘스트_contents.json"
+CONTENT_FILENAME = "__CONTENT_FILENAME__"
 APP_DIR = Path(__file__).resolve().parent
 OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
 FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
@@ -530,9 +633,8 @@ def main() -> None:
 
 main()
 '''
+    missing_battle_source = missing_battle_source.replace("__CONTENT_FILENAME__", content_filename)
     fake = FakeLLMClient(app_source=missing_battle_source)
-    package = load_planning_package(QUEST_V2_PACKAGE_DIR)
-    spec = planning_package_to_implementation_spec(package, QUEST_V2_PACKAGE_DIR)
 
     output = run_prototype_builder_agent(
         PrototypeBuilderInput(
@@ -561,7 +663,10 @@ main()
 
     assert output.generation_mode == "fallback_template"
     assert output.fallback_used is True
-    assert "BATTLE_FLOW_MISSING" in output.builder_errors
+    assert any(
+        error in output.builder_errors
+        for error in ("BATTLE_FLOW_MISSING", "CONTRACT_MISSING_MARKER")
+    )
     assert "SCREEN_BATTLE" in output.fallback_reason
 
 

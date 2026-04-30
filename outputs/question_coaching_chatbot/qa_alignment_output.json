@@ -1,0 +1,47 @@
+{
+  "agent": {
+    "english_name": "QA & Alignment Agent",
+    "korean_name": "최종 검수·정합성 확인 Agent"
+  },
+  "alignment_status": "WARN",
+  "qa_checklist": [
+    "interaction_mode 확인: coaching",
+    "interaction_mode 추론 이유: coaching markers detected with non-quiz-like content type marker profile: coaching=질문 입력, 되묻기, coaching, /api/chat; quiz=정답",
+    "interaction_units 수 확인: 9",
+    "interaction_type 분포 확인: coaching_feedback 3 + feedback 5 + free_text_input 1",
+    "QuizItem 하위 호환 사용 여부: NO",
+    "총 문제 수 확인: N/A (interaction-unit primary mode)",
+    "세션 구성 확인: interaction_units 순서와 next_step 기준",
+    "N/A (interaction-unit primary mode)",
+    "learning_dimension 허용값 여부: N/A (quiz semantic validator not required)",
+    "semantic validator 통과 여부: N/A (interaction-unit primary mode)",
+    "재생성 발생 여부: N/A (quiz regeneration path not used)",
+    "interaction_units 구조 validator 통과 여부: PASS",
+    "app.py Streamlit smoke test 여부: PASS",
+    "package pytest.py 통과 여부: NOT RUN",
+    "Prototype Builder LLM 생성 여부: fallback_template",
+    "fallback template 사용 여부: YES",
+    "app.py가 서비스별 콘텐츠 파일을 읽도록 생성되었는지 확인",
+    "실행 로그와 변경 로그가 생성되었는지 확인"
+  ],
+  "qa_issues": [
+    "LLM-generated app.py did not complete successfully; fallback template was used."
+  ],
+  "change_log_entries": [
+    "Prototype Builder Agent는 LLM 기반 app.py 생성을 우선 수행하고, 실패 시에만 fallback template을 사용하도록 정리되었다.",
+    "Content & Interaction Agent는 InteractionUnit 중심 구조를 함께 생성하며, interaction_mode=coaching, unit_count=9, mode_reason=coaching markers detected with non-quiz-like content type marker profile: coaching=질문 입력, 되묻기, coaching, /api/chat; quiz=정답.",
+    "Prototype Builder generation result: mode=fallback_template, fallback_used=True, errors=['LLM_OUTPUT_INVALID', 'COACHING_FLOW_MISSING', 'FALLBACK_USED'].",
+    "QA & Alignment Agent는 현재 단계에서 deterministic summary를 생성한다.",
+    "#12 semantic validator 결과: mode=coaching, expected_total=4, actual_total=0, configured_content_types=4, content_types_valid=N/A, learning_dimension_valid=N/A, semantic_validator_passed=N/A, regeneration_count=N/A, interaction_structure_valid=True, streamlit_smoke=PASS, package_pytest=NOT RUN."
+  ],
+  "final_summary_points": [
+    "교육 서비스 구현팀 6-Agent 파이프라인이 실행되었다.",
+    "9개 interaction unit이 생성되었다.",
+    "상호작용 흐름: coaching_feedback 3 + feedback 5 + free_text_input 1.",
+    "interaction_mode=coaching, reason=coaching markers detected with non-quiz-like content type marker profile: coaching=질문 입력, 되묻기, coaching, /api/chat; quiz=정답.",
+    "#12 검증 결과: semantic validator=N/A, interaction validator=PASS, 재생성=없음.",
+    "#20 실행 검증 결과: package_pytest=NOT RUN, streamlit_smoke=PASS.",
+    "#28 Prototype Builder 결과: generation_mode=fallback_template, fallback=YES, reflection_attempts=0.",
+    "Streamlit MVP, 실행 로그, QA 결과가 함께 정리되었다."
+  ]
+}
