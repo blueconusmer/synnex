@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ast
 import json
+import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from clients.llm import LLMClient
@@ -16,7 +18,7 @@ from schemas.implementation.prototype_builder import (
     PrototypeBuilderOutput,
 )
 
-from agents.implementation.helpers import dump_model, load_prompt_text, make_label
+from agents.implementation.helpers import load_prompt_text, make_label
 
 
 SUPPORTED_TARGET_FRAMEWORKS = {"streamlit"}
@@ -25,10 +27,74 @@ KNOWN_TARGET_FRAMEWORKS = SUPPORTED_TARGET_FRAMEWORKS | KNOWN_UNSUPPORTED_TARGET
 LLM_CALL_FAILED = "LLM_CALL_FAILED"
 LLM_OUTPUT_INVALID = "LLM_OUTPUT_INVALID"
 FALLBACK_USED = "FALLBACK_USED"
+CONTRACT_MISSING_MARKER = "CONTRACT_MISSING_MARKER"
+RESULT_FLOW_MISSING = "RESULT_FLOW_MISSING"
+BATTLE_FLOW_MISSING = "BATTLE_FLOW_MISSING"
+ROOT_FIRST_CONTENT_LOADING = "ROOT_FIRST_CONTENT_LOADING"
+RAW_FIELD_ACCESS = "RAW_FIELD_ACCESS"
+INVALID_STREAMLIT_API = "INVALID_STREAMLIT_API"
+PYTHON_SYNTAX_INVALID = "PYTHON_SYNTAX_INVALID"
+MISSING_CONTENT_GUIDANCE = "MISSING_CONTENT_GUIDANCE"
+PLANNING_PACKAGE_RUNTIME_ACCESS = "PLANNING_PACKAGE_RUNTIME_ACCESS"
+
+
+@dataclass(frozen=True)
+class BuilderRuntimeContract:
+    """Minimal runtime contract the generated app.py must satisfy."""
+
+    content_filename: str
+    interface_screen_ids: list[str]
+    required_screen_constants: list[str]
+    required_markers: list[str]
+    required_transition_assignments: list[str]
+    required_functions: list[str]
+    forbidden_raw_runtime_fields: list[str]
+    normalized_runtime_field_mapping: dict[str, str]
+    quest_sequence: list[str]
+    requires_battle: bool
+    requires_session_result: bool
+
+    def to_prompt_block(self) -> str:
+        return "\n".join(
+            [
+                "- builder_runtime_contract:",
+                f"  - content_filename: {self.content_filename}",
+                f"  - interface_screen_ids: {json.dumps(self.interface_screen_ids, ensure_ascii=False)}",
+                f"  - required_screen_constants: {json.dumps(self.required_screen_constants, ensure_ascii=False)}",
+                f"  - required_markers: {json.dumps(self.required_markers, ensure_ascii=False)}",
+                f"  - required_transition_assignments: {json.dumps(self.required_transition_assignments, ensure_ascii=False)}",
+                f"  - required_functions: {json.dumps(self.required_functions, ensure_ascii=False)}",
+                f"  - forbidden_raw_runtime_fields: {json.dumps(self.forbidden_raw_runtime_fields, ensure_ascii=False)}",
+                f"  - normalized_runtime_field_mapping: {json.dumps(self.normalized_runtime_field_mapping, ensure_ascii=False)}",
+                f"  - quest_sequence: {json.dumps(self.quest_sequence, ensure_ascii=False)}",
+                f"  - requires_battle: {json.dumps(self.requires_battle)}",
+                f"  - requires_session_result: {json.dumps(self.requires_session_result)}",
+            ]
+        )
+
+    def to_summary_string(self) -> str:
+        quest_sequence = " > ".join(self.quest_sequence) if self.quest_sequence else "unknown"
+        return (
+            f"screens={len(self.required_screen_constants)}, "
+            f"battle_required={str(self.requires_battle).lower()}, "
+            f"quest_sequence={quest_sequence}"
+        )
 
 
 class InvalidAppSourceError(ValueError):
     """Raised when the LLM app source does not satisfy minimal runtime constraints."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        contract_items: list[str] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.contract_items = contract_items or []
 
 
 def run_prototype_builder_agent(
@@ -66,7 +132,16 @@ def run_prototype_builder_agent(
         )
 
     content_filename = build_content_filename(service_name)
-    generation_inputs_summary = _build_generation_inputs_summary(input_model)
+    package_context = _load_package_prompt_context(Path(spec.source_path))
+    builder_runtime_contract = _build_builder_runtime_contract(
+        input_model=input_model,
+        content_filename=content_filename,
+        package_context=package_context,
+    )
+    generation_inputs_summary = _build_generation_inputs_summary(
+        input_model,
+        builder_runtime_contract,
+    )
     builder_errors: list[str] = []
     fallback_used = False
     fallback_reason = ""
@@ -85,13 +160,18 @@ def run_prototype_builder_agent(
             input_model=input_model,
             llm_client=llm_client,
             content_filename=content_filename,
+            package_context=package_context,
+            builder_runtime_contract=builder_runtime_contract,
         )
         runtime_notes.extend(generation_notes)
+        runtime_notes.append(
+            f"Builder runtime contract satisfied: {builder_runtime_contract.to_summary_string()}."
+        )
         runtime_notes.append("app.py는 LLM 생성 결과를 사용했다.")
     except InvalidAppSourceError as exc:
-        builder_errors.extend([LLM_OUTPUT_INVALID, FALLBACK_USED])
+        builder_errors.extend([LLM_OUTPUT_INVALID, exc.code, FALLBACK_USED])
         fallback_used = True
-        fallback_reason = f"{LLM_OUTPUT_INVALID}: {exc}"
+        fallback_reason = f"{LLM_OUTPUT_INVALID}: {exc.code}: {exc.message}"
         generation_mode = "fallback_template"
         app_source = build_fallback_app_source(input_model)
         runtime_notes.append("LLM app.py 출력이 유효하지 않아 fallback template을 사용했다.")
@@ -104,7 +184,9 @@ def run_prototype_builder_agent(
         runtime_notes.append("LLM app.py 생성 호출이 실패해 fallback template을 사용했다.")
 
     if _is_planning_package_dir(Path(spec.source_path)):
-        runtime_notes.append("생성된 app.py는 Quest 세션 기반 화면(S0~S5)을 반영해야 한다.")
+        runtime_notes.append(
+            "생성된 app.py는 interface_spec/state_machine에 정의된 Quest 세션 화면 흐름을 반영해야 한다."
+        )
         integration_notes.append(
             "score_rules, grade_levels, grade_thresholds는 app.py 생성 시 상수로 삽입된다."
         )
@@ -185,10 +267,14 @@ def _generate_app_source_with_llm(
     input_model: PrototypeBuilderInput,
     llm_client: LLMClient,
     content_filename: str,
+    package_context: dict[str, str],
+    builder_runtime_contract: BuilderRuntimeContract,
 ) -> AppSourceGenerationOutput:
     prompt = _build_app_generation_prompt(
         input_model=input_model,
         content_filename=content_filename,
+        package_context=package_context,
+        builder_runtime_contract=builder_runtime_contract,
     )
     return llm_client.generate_json(
         prompt=prompt,
@@ -205,26 +291,38 @@ def _generate_validated_app_source_with_llm(
     input_model: PrototypeBuilderInput,
     llm_client: LLMClient,
     content_filename: str,
+    package_context: dict[str, str],
+    builder_runtime_contract: BuilderRuntimeContract,
 ) -> tuple[str, list[str]]:
     generated_app = _generate_app_source_with_llm(
         input_model=input_model,
         llm_client=llm_client,
         content_filename=content_filename,
+        package_context=package_context,
+        builder_runtime_contract=builder_runtime_contract,
     )
     try:
+        validated_source = _validate_generated_app_source(
+            generated_app=generated_app,
+            content_filename=content_filename,
+            builder_runtime_contract=builder_runtime_contract,
+        )
         return (
-            _validate_generated_app_source(
-                generated_app=generated_app,
-                content_filename=content_filename,
+            validated_source,
+            _dedupe_preserve_order(
+                [
+                    *generated_app.generation_notes,
+                    _build_contract_self_check_note(validated_source, builder_runtime_contract),
+                ]
             ),
-            list(generated_app.generation_notes),
         )
     except InvalidAppSourceError as first_error:
         repair_prompt = _build_app_validation_repair_prompt(
             input_model=input_model,
             content_filename=content_filename,
             invalid_source=generated_app.app_source,
-            validation_error=str(first_error),
+            validation_error=first_error,
+            builder_runtime_contract=builder_runtime_contract,
         )
         repaired_app = llm_client.generate_json(
             prompt=repair_prompt,
@@ -237,14 +335,16 @@ def _generate_validated_app_source_with_llm(
         repaired_source = _validate_generated_app_source(
             generated_app=repaired_app,
             content_filename=content_filename,
+            builder_runtime_contract=builder_runtime_contract,
         )
         return (
             repaired_source,
             _dedupe_preserve_order(
                 [
                     *generated_app.generation_notes,
-                    "Initial app_source failed validation and was regenerated once.",
+                    f"Initial app_source failed validation once with {first_error.code}.",
                     *repaired_app.generation_notes,
+                    _build_contract_self_check_note(repaired_source, builder_runtime_contract),
                 ]
             ),
         )
@@ -254,9 +354,10 @@ def _build_app_generation_prompt(
     *,
     input_model: PrototypeBuilderInput,
     content_filename: str,
+    package_context: dict[str, str],
+    builder_runtime_contract: BuilderRuntimeContract,
 ) -> str:
     spec = input_model.implementation_spec
-    package_context = _load_package_prompt_context(Path(spec.source_path))
     prompt_template = load_prompt_text("prototype_builder.md")
     context = {
         "target_framework": spec.target_framework,
@@ -272,6 +373,15 @@ def _build_app_generation_prompt(
         "state_machine": package_context.get("state_machine", ""),
         "data_schema": package_context.get("data_schema", ""),
         "prompt_spec": package_context.get("prompt_spec", ""),
+        "interaction_mode": input_model.content_interaction_output.interaction_mode,
+        "interaction_mode_reason": input_model.content_interaction_output.interaction_mode_reason,
+        "interaction_units": [
+            unit.model_dump(mode="json")
+            for unit in input_model.content_interaction_output.interaction_units
+        ],
+        "flow_notes": input_model.content_interaction_output.flow_notes,
+        "evaluation_rules": input_model.content_interaction_output.evaluation_rules,
+        "builder_runtime_contract": builder_runtime_contract.to_prompt_block(),
     }
     return prompt_template.format(
         target_framework=context["target_framework"],
@@ -295,6 +405,16 @@ def _build_app_generation_prompt(
         state_machine=context["state_machine"],
         data_schema=context["data_schema"],
         prompt_spec=context["prompt_spec"],
+        interaction_mode=context["interaction_mode"],
+        interaction_mode_reason=context["interaction_mode_reason"],
+        interaction_units=json.dumps(context["interaction_units"], ensure_ascii=False, indent=2),
+        flow_notes=json.dumps(context["flow_notes"], ensure_ascii=False, indent=2),
+        evaluation_rules=json.dumps(
+            context["evaluation_rules"],
+            ensure_ascii=False,
+            indent=2,
+        ),
+        builder_runtime_contract=context["builder_runtime_contract"],
     )
 
 
@@ -303,13 +423,25 @@ def _build_app_validation_repair_prompt(
     input_model: PrototypeBuilderInput,
     content_filename: str,
     invalid_source: str,
-    validation_error: str,
+    validation_error: InvalidAppSourceError,
+    builder_runtime_contract: BuilderRuntimeContract,
 ) -> str:
     spec = input_model.implementation_spec
+    failed_items = validation_error.contract_items or [validation_error.message]
     return (
         "The previous generated app.py failed validation.\n"
-        f"Validation error: {validation_error}\n\n"
-        "Regenerate the full app.py source while preserving the intended UI and behavior.\n"
+        f"Validation error code: {validation_error.code}\n"
+        f"Validation error: {validation_error.message}\n\n"
+        "Preserve the valid parts of the existing source and add or fix the missing runtime contract items.\n"
+        "Do not drop valid helper functions, content loading logic, or current_screen transitions.\n\n"
+        "Builder runtime contract:\n"
+        f"{builder_runtime_contract.to_prompt_block()}\n\n"
+        "Missing or invalid contract items:\n"
+        f"{json.dumps(failed_items, ensure_ascii=False, indent=2)}\n\n"
+        "Required functions to preserve:\n"
+        f"{json.dumps(builder_runtime_contract.required_functions, ensure_ascii=False)}\n\n"
+        "Targeted repair guidance:\n"
+        f"{_build_repair_guidance(validation_error, builder_runtime_contract)}\n\n"
         "The corrected source must satisfy this mandatory content loading contract:\n\n"
         f"{_mandatory_content_loading_contract(content_filename)}\n\n"
         "Do not read planning package files at runtime.\n"
@@ -327,41 +459,60 @@ def _validate_generated_app_source(
     *,
     generated_app: AppSourceGenerationOutput,
     content_filename: str,
+    builder_runtime_contract: BuilderRuntimeContract,
 ) -> str:
     app_path = Path(generated_app.app_path or "app.py")
     if app_path.name != "app.py":
-        raise InvalidAppSourceError("LLM output app_path must point to app.py.")
+        raise InvalidAppSourceError(
+            CONTRACT_MISSING_MARKER,
+            "LLM output app_path must point to app.py.",
+            contract_items=["app_path=app.py"],
+        )
 
     app_source = _strip_python_fence(generated_app.app_source)
     if not app_source.strip():
-        raise InvalidAppSourceError("LLM output app_source is empty.")
+        raise InvalidAppSourceError(CONTRACT_MISSING_MARKER, "LLM output app_source is empty.")
     if "st." not in app_source or "streamlit" not in app_source:
-        raise InvalidAppSourceError("app_source does not appear to be a Streamlit app.")
+        raise InvalidAppSourceError(
+            CONTRACT_MISSING_MARKER,
+            "app_source does not appear to be a Streamlit app.",
+        )
     if content_filename not in app_source:
         raise InvalidAppSourceError(
-            f"app_source does not reference required content file {content_filename}."
+            CONTRACT_MISSING_MARKER,
+            f"app_source does not reference required content file {content_filename}.",
+            contract_items=[content_filename],
         )
     if not _references_outputs_content_path(app_source, content_filename):
         raise InvalidAppSourceError(
-            f"app_source must reference outputs/{content_filename} as a content candidate."
+            CONTRACT_MISSING_MARKER,
+            f"app_source must reference outputs/{content_filename} as a content candidate.",
+            contract_items=[f"outputs/{content_filename}"],
         )
     if not _uses_outputs_before_root_fallback(app_source, content_filename):
         raise InvalidAppSourceError(
+            ROOT_FIRST_CONTENT_LOADING,
             "app_source must try outputs/{content_filename} before the root fallback file."
         )
     if not _has_missing_content_guidance(app_source):
         raise InvalidAppSourceError(
+            MISSING_CONTENT_GUIDANCE,
             "app_source must show user-facing guidance when the content file is missing."
         )
     if "st.experimental_rerun" in app_source:
-        raise InvalidAppSourceError("app_source must use st.rerun() instead of st.experimental_rerun().")
-    _validate_state_machine_contract(app_source)
+        raise InvalidAppSourceError(
+            INVALID_STREAMLIT_API,
+            "app_source must use st.rerun() instead of st.experimental_rerun().",
+            contract_items=["st.rerun()"],
+        )
     try:
         compile(app_source, "app.py", "exec")
     except SyntaxError as exc:
         raise InvalidAppSourceError(
+            PYTHON_SYNTAX_INVALID,
             f"app_source is not valid Python: {exc.msg} at line {exc.lineno}."
         ) from exc
+    _validate_state_machine_contract(app_source, builder_runtime_contract)
     _validate_function_call_arity(
         app_source=app_source,
         function_name="evaluate_improvement_question",
@@ -377,47 +528,49 @@ def _validate_generated_app_source(
     for forbidden in forbidden_runtime_inputs:
         if forbidden in app_source:
             raise InvalidAppSourceError(
+                PLANNING_PACKAGE_RUNTIME_ACCESS,
                 f"app_source must not read planning package input at runtime: {forbidden}."
             )
     return app_source.rstrip() + "\n"
 
 
-def _validate_state_machine_contract(app_source: str) -> None:
+def _validate_state_machine_contract(
+    app_source: str,
+    builder_runtime_contract: BuilderRuntimeContract,
+) -> None:
+    normalized = _normalize_source_for_contract_checks(app_source)
     required_markers = [
-        "current_screen",
-        "SCREEN_MULTIPLE_CHOICE_RESULT",
-        "SCREEN_IMPROVEMENT_RESULT",
-        "st.rerun()",
+        *builder_runtime_contract.required_markers,
+        *builder_runtime_contract.required_screen_constants,
     ]
     for marker in required_markers:
         if marker not in app_source:
             raise InvalidAppSourceError(
-                f"app_source must include state-machine marker: {marker}."
+                _classify_contract_issue(marker),
+                f"app_source must include state-machine marker: {marker}.",
+                contract_items=[marker],
             )
 
-    raw_field_patterns = [
-        'quest["item_id"]',
-        "quest['item_id']",
-        'quest.get("item_id"',
-        "quest.get('item_id'",
-        'quest["choices"]',
-        "quest['choices']",
-        'quest.get("choices"',
-        "quest.get('choices'",
-    ]
-    function_pairs = [
-        ("api_quest_submit", "api_session_result"),
-        ("render_multiple_choice_screen", "render_multiple_choice_result"),
-        ("render_multiple_choice_result", "render_improvement_screen"),
-        ("render_improvement_screen", "render_improvement_result"),
-    ]
-    for start_name, end_name in function_pairs:
-        block = _extract_function_block(app_source, start_name, end_name)
-        for pattern in raw_field_patterns:
-            if pattern in block:
-                raise InvalidAppSourceError(
-                    f"{start_name} must use normalized quest fields only; found raw field reference {pattern}."
-                )
+    for assignment in builder_runtime_contract.required_transition_assignments:
+        if _normalize_source_for_contract_checks(assignment) not in normalized:
+            raise InvalidAppSourceError(
+                _classify_contract_issue(assignment),
+                f"app_source must include state transition assignment: {assignment}.",
+                contract_items=[assignment],
+            )
+
+    runtime_source = _strip_allowed_normalization_blocks(
+        app_source,
+        allowed_function_names={"normalize_quest"},
+    )
+    for pattern in builder_runtime_contract.forbidden_raw_runtime_fields:
+        if pattern in runtime_source:
+            raise InvalidAppSourceError(
+                RAW_FIELD_ACCESS,
+                "app_source must use normalized quest fields only; "
+                f"found raw field reference {pattern} outside normalization helpers.",
+                contract_items=[pattern],
+            )
 
 
 def _validate_function_call_arity(*, app_source: str, function_name: str) -> None:
@@ -450,13 +603,17 @@ def _validate_function_call_arity(*, app_source: str, function_name: str) -> Non
         provided_count = positional_count + len(keyword_names)
         if max_count is not None and positional_count > max_count:
             raise InvalidAppSourceError(
+                CONTRACT_MISSING_MARKER,
                 f"{function_name} call passes {positional_count} positional args "
-                f"but function defines {max_count}."
+                f"but function defines {max_count}.",
+                contract_items=[function_name],
             )
         if provided_count < required_count:
             raise InvalidAppSourceError(
+                CONTRACT_MISSING_MARKER,
                 f"{function_name} call provides {provided_count} args "
-                f"but function requires {required_count}."
+                f"but function requires {required_count}.",
+                contract_items=[function_name],
             )
 
 
@@ -533,14 +690,29 @@ def _normalize_source_for_contract_checks(app_source: str) -> str:
     return "".join(app_source.lower().split())
 
 
-def _extract_function_block(app_source: str, start_name: str, end_name: str) -> str:
-    start_marker = f"def {start_name}"
-    end_marker = f"def {end_name}"
-    if start_marker not in app_source or end_marker not in app_source:
-        raise InvalidAppSourceError(
-            f"app_source must include function block {start_name} before {end_name}."
-        )
-    return app_source.split(start_marker, 1)[1].split(end_marker, 1)[0]
+def _strip_allowed_normalization_blocks(
+    app_source: str,
+    *,
+    allowed_function_names: set[str],
+) -> str:
+    tree = ast.parse(app_source)
+    source_lines = app_source.splitlines()
+    removed_ranges: list[tuple[int, int]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if node.name not in allowed_function_names:
+            continue
+        start = node.lineno - 1
+        end = getattr(node, "end_lineno", node.lineno) - 1
+        removed_ranges.append((start, end))
+
+    kept_lines: list[str] = []
+    for index, line in enumerate(source_lines):
+        if any(start <= index <= end for start, end in removed_ranges):
+            continue
+        kept_lines.append(line)
+    return "\n".join(kept_lines)
 
 
 def _strip_python_fence(source: str) -> str:
@@ -572,16 +744,25 @@ def _load_package_prompt_context(path: Path) -> dict[str, str]:
     return context
 
 
-def _build_generation_inputs_summary(input_model: PrototypeBuilderInput) -> list[str]:
+def _build_generation_inputs_summary(
+    input_model: PrototypeBuilderInput,
+    builder_runtime_contract: BuilderRuntimeContract,
+) -> list[str]:
     spec = input_model.implementation_spec
     summary = [
         f"target_framework={spec.target_framework}",
         f"service_purpose={'present' if spec.service_purpose else 'missing'}",
         f"target_user_count={len(spec.target_users)}",
         f"mvp_scope_count={len(spec.core_features)}",
+        f"interaction_mode={input_model.content_interaction_output.interaction_mode}",
+        f"interaction_unit_count={len(input_model.content_interaction_output.interaction_units)}",
+        f"builder_contract_screen_count={len(builder_runtime_contract.required_screen_constants)}",
+        f"builder_contract_battle_required={str(builder_runtime_contract.requires_battle).lower()}",
+        f"builder_contract_quest_sequence={'>'.join(builder_runtime_contract.quest_sequence)}",
         "spec_intake_output",
         "requirement_mapping_output",
         "content_interaction_output",
+        "builder_runtime_contract",
     ]
     if _is_planning_package_dir(Path(spec.source_path)):
         summary.extend(["interface_spec", "state_machine", "data_schema", "prompt_spec"])
@@ -614,6 +795,168 @@ def _dedupe_preserve_order(values: list[str]) -> list[str]:
         seen.add(value)
         ordered.append(value)
     return ordered
+
+
+def _build_builder_runtime_contract(
+    *,
+    input_model: PrototypeBuilderInput,
+    content_filename: str,
+    package_context: dict[str, str],
+) -> BuilderRuntimeContract:
+    quest_sequence = [item.quiz_type for item in input_model.content_interaction_output.items]
+    if not quest_sequence:
+        quest_sequence = [
+            (
+                unit.metadata.get("source_quiz_type", "")
+                if isinstance(unit.metadata, dict)
+                else ""
+            )
+            or unit.interaction_type
+            for unit in input_model.content_interaction_output.interaction_units
+        ]
+        quest_sequence = [value for value in quest_sequence if value]
+
+    requires_battle = "battle" in quest_sequence or any(
+        "battle" in note.lower() for note in input_model.content_interaction_output.flow_notes
+    )
+    required_screen_constants = [
+        "SCREEN_START",
+        "SCREEN_MULTIPLE_CHOICE",
+        "SCREEN_MULTIPLE_CHOICE_RESULT",
+        "SCREEN_IMPROVEMENT",
+        "SCREEN_IMPROVEMENT_RESULT",
+        "SCREEN_SESSION_RESULT",
+    ]
+    required_transition_assignments = [
+        "st.session_state.current_screen = SCREEN_MULTIPLE_CHOICE_RESULT",
+        "st.session_state.current_screen = SCREEN_IMPROVEMENT_RESULT",
+        "st.session_state.current_screen = SCREEN_SESSION_RESULT",
+    ]
+    if requires_battle:
+        required_screen_constants.extend(
+            [
+                "SCREEN_BATTLE",
+                "SCREEN_BATTLE_RESULT",
+                "SCREEN_BATTLE_COMPLETED",
+            ]
+        )
+        required_transition_assignments.extend(
+            [
+                "st.session_state.current_screen = SCREEN_BATTLE",
+                "st.session_state.current_screen = SCREEN_BATTLE_RESULT",
+                "st.session_state.current_screen = SCREEN_BATTLE_COMPLETED",
+            ]
+        )
+    return BuilderRuntimeContract(
+        content_filename=content_filename,
+        interface_screen_ids=_extract_interface_screen_ids(package_context.get("interface_spec", "")),
+        required_screen_constants=required_screen_constants,
+        required_markers=["current_screen", "st.rerun()"],
+        required_transition_assignments=required_transition_assignments,
+        required_functions=["api_session_start", "api_quest_submit", "api_session_result"],
+        forbidden_raw_runtime_fields=[
+            'quest["item_id"]',
+            "quest['item_id']",
+            'quest.get("item_id"',
+            "quest.get('item_id'",
+            'quest["choices"]',
+            "quest['choices']",
+            'quest.get("choices"',
+            "quest.get('choices'",
+        ],
+        normalized_runtime_field_mapping={
+            'item["item_id"]': 'quest["quest_id"]',
+            'quest["item_id"]': 'quest["quest_id"]',
+            'item["choices"]': 'quest["options"]',
+            'quest["choices"]': 'quest["options"]',
+            'item["correct_choice"]': 'quest["correct_option_text"]',
+            'quest["correct_choice"]': 'quest["correct_option_text"]',
+        },
+        quest_sequence=quest_sequence,
+        requires_battle=requires_battle,
+        requires_session_result=True,
+    )
+
+
+def _build_contract_self_check_note(
+    app_source: str,
+    builder_runtime_contract: BuilderRuntimeContract,
+) -> str:
+    normalized = _normalize_source_for_contract_checks(app_source)
+    required_markers = [
+        *builder_runtime_contract.required_markers,
+        *builder_runtime_contract.required_screen_constants,
+    ]
+    marker_count = sum(1 for marker in required_markers if marker in app_source)
+    transition_count = sum(
+        1
+        for assignment in builder_runtime_contract.required_transition_assignments
+        if _normalize_source_for_contract_checks(assignment) in normalized
+    )
+    outputs_first_loading = _uses_outputs_before_root_fallback(
+        app_source,
+        builder_runtime_contract.content_filename,
+    )
+    return (
+        "Builder self-check: "
+        f"markers={marker_count}/{len(required_markers)}, "
+        f"transitions={transition_count}/{len(builder_runtime_contract.required_transition_assignments)}, "
+        f"battle_required={str(builder_runtime_contract.requires_battle).lower()}, "
+        f"outputs_first_loading={str(outputs_first_loading).lower()}"
+    )
+
+
+def _build_repair_guidance(
+    validation_error: InvalidAppSourceError,
+    builder_runtime_contract: BuilderRuntimeContract,
+) -> str:
+    guidance = [
+        "Keep the existing file structure when possible and only repair the failed runtime contract items.",
+        "Keep current_screen-based transitions explicit with literal assignments in source.",
+        "Keep outputs/{content_filename} first and root fallback second.".replace(
+            "{content_filename}",
+            builder_runtime_contract.content_filename,
+        ),
+    ]
+    if validation_error.code == RAW_FIELD_ACCESS:
+        guidance.extend(
+            [
+                "Only normalize_quest(item) may read raw item fields such as item_id or choices.",
+                "Replace quest[\"item_id\"] with quest[\"quest_id\"] everywhere outside normalize_quest(item).",
+                "Replace quest[\"choices\"] with quest[\"options\"] everywhere outside normalize_quest(item).",
+                "Replace quest[\"correct_choice\"] with quest[\"correct_option_text\"] or quest[\"correct_option_index\"] as appropriate.",
+            ]
+        )
+    if validation_error.code == ROOT_FIRST_CONTENT_LOADING:
+        guidance.append(
+            "Do not read the root content file first. resolve_content_path() must iterate CONTENT_CANDIDATE_PATHS in outputs-first order."
+        )
+    if validation_error.code in {RESULT_FLOW_MISSING, BATTLE_FLOW_MISSING, CONTRACT_MISSING_MARKER}:
+        guidance.append(
+            "If a required screen constant or transition is missing, add the literal constant name and literal st.session_state.current_screen assignment."
+        )
+    if validation_error.code == PYTHON_SYNTAX_INVALID:
+        guidance.append("Fix Python syntax first, then preserve all required screen constants and transitions.")
+    return json.dumps(guidance, ensure_ascii=False, indent=2)
+
+
+def _extract_interface_screen_ids(interface_spec: str) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for screen_id in re.findall(r"\bS\d+\b", interface_spec):
+        if screen_id in seen:
+            continue
+        seen.add(screen_id)
+        ordered.append(screen_id)
+    return ordered
+
+
+def _classify_contract_issue(contract_item: str) -> str:
+    if "BATTLE" in contract_item:
+        return BATTLE_FLOW_MISSING
+    if any(token in contract_item for token in ("IMPROVEMENT_RESULT", "MULTIPLE_CHOICE_RESULT", "SESSION_RESULT")):
+        return RESULT_FLOW_MISSING
+    return CONTRACT_MISSING_MARKER
 
 
 def _normalize_target_framework(value: str) -> str:

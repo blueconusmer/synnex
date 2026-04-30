@@ -2,6 +2,7 @@ from schemas.implementation.common import (
     AgentLabel,
     FailureRecord,
     GeneratedFile,
+    InteractionUnit,
     LocalCheckResult,
     PatchedFile,
     QuizGenerationRequirements,
@@ -11,10 +12,19 @@ from schemas.implementation.common import (
 from schemas.implementation.content_interaction import (
     ContentInteractionInput,
     ContentInteractionOutput,
+    InteractionValidationSummary,
+    SemanticValidationItemResult,
+    SemanticValidationSummary,
 )
 from schemas.implementation.implementation_spec import (
     ImplementationSpec,
     parse_markdown_spec,
+)
+from schemas.implementation.orchestration_decision import (
+    OrchestrationDecision,
+    OrchestrationJudgeOutput,
+    RetryHistoryEntry,
+    RetryInstruction,
 )
 from schemas.implementation.prototype_builder import (
     AppSourceGenerationOutput,
@@ -43,7 +53,11 @@ __all__ = [
     "FailureRecord",
     "GeneratedFile",
     "ImplementationSpec",
+    "InteractionUnit",
+    "InteractionValidationSummary",
     "LocalCheckResult",
+    "OrchestrationDecision",
+    "OrchestrationJudgeOutput",
     "PatchedFile",
     "PrototypeBuilderInput",
     "PrototypeBuilderOutput",
@@ -53,9 +67,13 @@ __all__ = [
     "QuizItem",
     "RequirementMappingInput",
     "RequirementMappingOutput",
+    "RetryHistoryEntry",
+    "RetryInstruction",
     "RunTestAndFixInput",
     "RunTestAndFixOutput",
     "SchemaModel",
+    "SemanticValidationItemResult",
+    "SemanticValidationSummary",
     "SpecIntakeInput",
     "SpecIntakeOutput",
     "parse_markdown_spec",

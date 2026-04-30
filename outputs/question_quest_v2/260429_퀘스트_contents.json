@@ -1,0 +1,526 @@
+{
+  "agent": {
+    "english_name": "Content & Interaction Agent",
+    "korean_name": "교육 콘텐츠·상호작용 생성 Agent"
+  },
+  "service_summary": "게이미피케이션을 통해 학생들의 질문력(구체성·맥락성·목적성)을 향상시키는 AI 교육 서비스. 주제/상황/원하는 답의 형태를 포함한 질문 작성 훈련과 AI 생성 질문과의 배틀 평가를 통해 반복 학습 동기를 유지. Streamlit 기반 구현으로 다중 선택, 상황 카드, 질문 개선, 배틀 기능을 포함한 5단계 퀘스트 시스템 제공.",
+  "interaction_mode": "quiz",
+  "interaction_mode_reason": "quiz markers detected: 점수, 배틀, quest, multiple_choice, question_improvement",
+  "quiz_types": [
+    "multiple_choice",
+    "situation_card",
+    "question_improvement",
+    "battle"
+  ],
+  "items": [
+    {
+      "item_id": "Q1_001",
+      "quiz_type": "multiple_choice",
+      "difficulty": "intro",
+      "learning_dimension": "구체성",
+      "title": "질문 작성 기본 요소",
+      "topic_context": "구체성",
+      "situation": "",
+      "original_question": "좋은 질문을 만들기 위해 필요한 3가지 요소는 무엇인가요?",
+      "stage_level": "",
+      "question": "좋은 질문을 만들기 위해 필요한 3가지 요소는 무엇인가요?",
+      "choices": [
+        "주제, 상황, 원하는 답의 형태",
+        "명사, 동사, 형용사",
+        "주어, 서술어, 목적어",
+        "과거, 현재, 미래"
+      ],
+      "correct_choice": "주제, 상황, 원하는 답의 형태",
+      "explanation": "좋은 질문은 주제(무엇에 대한 질문인지), 상황(어떤 맥락에서 질문하는지), 원하는 답의 형태(어떤 형식의 답을 기대하는지)를 명확히 해야 합니다.",
+      "learning_point": "질문의 구체성을 높이려면 주제, 상황, 원하는 답의 형태를 명확히 해야 합니다.",
+      "ai_question": ""
+    },
+    {
+      "item_id": "Q2_001",
+      "quiz_type": "situation_card",
+      "difficulty": "main",
+      "learning_dimension": "맥락성",
+      "title": "상황 카드 기반 질문 작성",
+      "topic_context": "과학 실험",
+      "situation": "물체의 무게를 측정하는 실험에서 측정값이 계속 달라질 때",
+      "original_question": "이 상황에서 어떤 질문을 할 수 있을까요?",
+      "stage_level": "",
+      "question": "이 상황에서 어떤 질문을 할 수 있을까요?",
+      "choices": [],
+      "correct_choice": "",
+      "explanation": "맥락성을 고려한 질문은 '물체의 무게를 정확히 측정하려면 어떤 방법을 사용해야 할까요?'와 같이 실험 상황과 직접 관련된 질문이어야 합니다.",
+      "learning_point": "질문의 맥락성을 높이려면 구체적인 상황과 연결지어 질문해야 합니다.",
+      "ai_question": ""
+    },
+    {
+      "item_id": "Q3_001",
+      "quiz_type": "question_improvement",
+      "difficulty": "main",
+      "learning_dimension": "구체성",
+      "title": "질문 개선",
+      "topic_context": "구체성",
+      "situation": "",
+      "original_question": "과학 실험에 대해 질문해 주세요",
+      "stage_level": "",
+      "question": "다음 질문을 더 구체적으로 개선한다면 어떻게 바꿀 수 있을까요?",
+      "choices": [],
+      "correct_choice": "",
+      "explanation": "개선된 질문은 '물체의 무게를 정확히 측정하는 과학 실험에서 측정 오차를 줄이려면 어떤 방법을 사용해야 할까요?'와 같이 주제, 상황, 원하는 답의 형태를 명확히 해야 합니다.",
+      "learning_point": "질문을 개선할 때는 주제, 상황, 원하는 답의 형태를 더 명확히 해야 합니다.",
+      "ai_question": ""
+    },
+    {
+      "item_id": "Q2_002",
+      "quiz_type": "situation_card",
+      "difficulty": "main_advanced",
+      "learning_dimension": "목적성",
+      "title": "상황 카드 기반 질문 작성",
+      "topic_context": "역사 수업",
+      "situation": "조선 시대 왕의 정책 중 백성들에게 가장 큰 영향을 준 정책",
+      "original_question": "이 상황에서 어떤 질문을 할 수 있을까요?",
+      "stage_level": "",
+      "question": "이 상황에서 어떤 질문을 할 수 있을까요?",
+      "choices": [],
+      "correct_choice": "",
+      "explanation": "목적성을 고려한 질문은 '조선 시대 왕들의 정책 중 백성들의 생활에 가장 큰 변화를 준 정책은 무엇인가요?'와 같이 명확한 목적을 가진 질문이어야 합니다.",
+      "learning_point": "질문의 목적성을 높이려면 질문의 목적을 명확히 해야 합니다.",
+      "ai_question": ""
+    },
+    {
+      "item_id": "Q4_001",
+      "quiz_type": "battle",
+      "difficulty": "main_advanced",
+      "learning_dimension": "맥락성",
+      "title": "AI 배틀",
+      "topic_context": "맥락성",
+      "situation": "학교 급식 메뉴 개선",
+      "original_question": "AI의 질문보다 더 맥락성이 높은 질문을 만들어 보세요.",
+      "stage_level": "초급",
+      "question": "AI의 질문보다 더 맥락성이 높은 질문을 만들어 보세요.",
+      "choices": [],
+      "correct_choice": "",
+      "explanation": "맥락성이 높은 질문은 '학생들이 가장 싫어하는 학교 급식 메뉴의 문제점을 해결하기 위한 방법은 무엇인가요?'와 같이 구체적인 상황과 문제점을 반영한 질문이어야 합니다.",
+      "learning_point": "AI 배틀에서는 상황 맥락을 더 명확히 반영한 질문을 만들어야 합니다.",
+      "ai_question": "학교 급식 메뉴를 더 맛있게 만들려면 어떻게 해야 할까요?"
+    }
+  ],
+  "answer_key": {
+    "Q1_001": "주제, 상황, 원하는 답의 형태",
+    "Q2_001": "",
+    "Q3_001": "",
+    "Q2_002": "",
+    "Q4_001": ""
+  },
+  "explanations": {
+    "Q1_001": "좋은 질문은 주제(무엇에 대한 질문인지), 상황(어떤 맥락에서 질문하는지), 원하는 답의 형태(어떤 형식의 답을 기대하는지)를 명확히 해야 합니다.",
+    "Q2_001": "맥락성을 고려한 질문은 '물체의 무게를 정확히 측정하려면 어떤 방법을 사용해야 할까요?'와 같이 실험 상황과 직접 관련된 질문이어야 합니다.",
+    "Q3_001": "개선된 질문은 '물체의 무게를 정확히 측정하는 과학 실험에서 측정 오차를 줄이려면 어떤 방법을 사용해야 할까요?'와 같이 주제, 상황, 원하는 답의 형태를 명확히 해야 합니다.",
+    "Q2_002": "목적성을 고려한 질문은 '조선 시대 왕들의 정책 중 백성들의 생활에 가장 큰 변화를 준 정책은 무엇인가요?'와 같이 명확한 목적을 가진 질문이어야 합니다.",
+    "Q4_001": "맥락성이 높은 질문은 '학생들이 가장 싫어하는 학교 급식 메뉴의 문제점을 해결하기 위한 방법은 무엇인가요?'와 같이 구체적인 상황과 문제점을 반영한 질문이어야 합니다."
+  },
+  "learning_points": {
+    "Q1_001": "질문의 구체성을 높이려면 주제, 상황, 원하는 답의 형태를 명확히 해야 합니다.",
+    "Q2_001": "질문의 맥락성을 높이려면 구체적인 상황과 연결지어 질문해야 합니다.",
+    "Q3_001": "질문을 개선할 때는 주제, 상황, 원하는 답의 형태를 더 명확히 해야 합니다.",
+    "Q2_002": "질문의 목적성을 높이려면 질문의 목적을 명확히 해야 합니다.",
+    "Q4_001": "AI 배틀에서는 상황 맥락을 더 명확히 반영한 질문을 만들어야 합니다."
+  },
+  "interaction_notes": [
+    "Q1(선택) → Q2(작성) → Q3(개선) → Q4(배틀) → Q5(종합) 순서로 퀘스트를 진행합니다.",
+    "각 퀘스트는 주제, 상황, 원하는 답의 형태를 고려하여 질문을 작성하거나 개선합니다.",
+    "AI 배틀에서는 AI의 질문과 비교하여 더 나은 질문을 만들어야 합니다."
+  ],
+  "interaction_units": [
+    {
+      "unit_id": "Q1_001_action",
+      "interaction_type": "multiple_choice",
+      "title": "질문 작성 기본 요소",
+      "learner_action": "좋은 질문을 만들기 위해 필요한 3가지 요소는 무엇인가요?",
+      "system_response": "구체성",
+      "input_format": "multiple_choice",
+      "feedback_rule": "사용자 응답 후 정답, 해설, 학습 포인트를 포함한 결과 피드백을 보여 준다.",
+      "learning_dimension": "구체성",
+      "next_step": "Q1_001_feedback",
+      "metadata": {
+        "source_item_id": "Q1_001",
+        "quiz_type": "multiple_choice",
+        "difficulty": "intro",
+        "topic_context": "구체성",
+        "original_question": "좋은 질문을 만들기 위해 필요한 3가지 요소는 무엇인가요?",
+        "choices": [
+          "주제, 상황, 원하는 답의 형태",
+          "명사, 동사, 형용사",
+          "주어, 서술어, 목적어",
+          "과거, 현재, 미래"
+        ],
+        "correct_choice": "주제, 상황, 원하는 답의 형태"
+      }
+    },
+    {
+      "unit_id": "Q1_001_feedback",
+      "interaction_type": "feedback",
+      "title": "질문 작성 기본 요소 결과",
+      "learner_action": "",
+      "system_response": "좋은 질문은 주제(무엇에 대한 질문인지), 상황(어떤 맥락에서 질문하는지), 원하는 답의 형태(어떤 형식의 답을 기대하는지)를 명확히 해야 합니다.",
+      "input_format": "",
+      "feedback_rule": "정답, 해설, 학습 포인트를 보여 주고 다음 단계로 이동시킨다.",
+      "learning_dimension": "구체성",
+      "next_step": "Q2_001_action",
+      "metadata": {
+        "source_item_id": "Q1_001",
+        "correct_choice": "주제, 상황, 원하는 답의 형태",
+        "explanation": "좋은 질문은 주제(무엇에 대한 질문인지), 상황(어떤 맥락에서 질문하는지), 원하는 답의 형태(어떤 형식의 답을 기대하는지)를 명확히 해야 합니다.",
+        "learning_point": "질문의 구체성을 높이려면 주제, 상황, 원하는 답의 형태를 명확히 해야 합니다.",
+        "choices": [
+          "주제, 상황, 원하는 답의 형태",
+          "명사, 동사, 형용사",
+          "주어, 서술어, 목적어",
+          "과거, 현재, 미래"
+        ],
+        "quiz_type": "multiple_choice",
+        "situation": "",
+        "stage_level": "",
+        "ai_question": ""
+      }
+    },
+    {
+      "unit_id": "Q2_001_action",
+      "interaction_type": "free_text_input",
+      "title": "상황 카드 기반 질문 작성",
+      "learner_action": "물체의 무게를 측정하는 실험에서 측정값이 계속 달라질 때",
+      "system_response": "물체의 무게를 측정하는 실험에서 측정값이 계속 달라질 때",
+      "input_format": "free_text",
+      "feedback_rule": "사용자 응답 후 정답, 해설, 학습 포인트를 포함한 결과 피드백을 보여 준다.",
+      "learning_dimension": "맥락성",
+      "next_step": "Q2_001_feedback",
+      "metadata": {
+        "source_item_id": "Q2_001",
+        "quiz_type": "situation_card",
+        "difficulty": "main",
+        "topic_context": "과학 실험",
+        "original_question": "이 상황에서 어떤 질문을 할 수 있을까요?",
+        "situation": "물체의 무게를 측정하는 실험에서 측정값이 계속 달라질 때"
+      }
+    },
+    {
+      "unit_id": "Q2_001_feedback",
+      "interaction_type": "feedback",
+      "title": "상황 카드 기반 질문 작성 결과",
+      "learner_action": "",
+      "system_response": "맥락성을 고려한 질문은 '물체의 무게를 정확히 측정하려면 어떤 방법을 사용해야 할까요?'와 같이 실험 상황과 직접 관련된 질문이어야 합니다.",
+      "input_format": "",
+      "feedback_rule": "정답, 해설, 학습 포인트를 보여 주고 다음 단계로 이동시킨다.",
+      "learning_dimension": "맥락성",
+      "next_step": "Q3_001_action",
+      "metadata": {
+        "source_item_id": "Q2_001",
+        "correct_choice": "",
+        "explanation": "맥락성을 고려한 질문은 '물체의 무게를 정확히 측정하려면 어떤 방법을 사용해야 할까요?'와 같이 실험 상황과 직접 관련된 질문이어야 합니다.",
+        "learning_point": "질문의 맥락성을 높이려면 구체적인 상황과 연결지어 질문해야 합니다.",
+        "choices": [],
+        "quiz_type": "situation_card",
+        "situation": "물체의 무게를 측정하는 실험에서 측정값이 계속 달라질 때",
+        "stage_level": "",
+        "ai_question": ""
+      }
+    },
+    {
+      "unit_id": "Q3_001_action",
+      "interaction_type": "free_text_input",
+      "title": "질문 개선",
+      "learner_action": "다음 질문을 더 구체적으로 개선한다면 어떻게 바꿀 수 있을까요?",
+      "system_response": "과학 실험에 대해 질문해 주세요",
+      "input_format": "free_text",
+      "feedback_rule": "사용자 응답 후 정답, 해설, 학습 포인트를 포함한 결과 피드백을 보여 준다.",
+      "learning_dimension": "구체성",
+      "next_step": "Q3_001_feedback",
+      "metadata": {
+        "source_item_id": "Q3_001",
+        "quiz_type": "question_improvement",
+        "difficulty": "main",
+        "topic_context": "구체성",
+        "original_question": "과학 실험에 대해 질문해 주세요"
+      }
+    },
+    {
+      "unit_id": "Q3_001_feedback",
+      "interaction_type": "feedback",
+      "title": "질문 개선 결과",
+      "learner_action": "",
+      "system_response": "개선된 질문은 '물체의 무게를 정확히 측정하는 과학 실험에서 측정 오차를 줄이려면 어떤 방법을 사용해야 할까요?'와 같이 주제, 상황, 원하는 답의 형태를 명확히 해야 합니다.",
+      "input_format": "",
+      "feedback_rule": "정답, 해설, 학습 포인트를 보여 주고 다음 단계로 이동시킨다.",
+      "learning_dimension": "구체성",
+      "next_step": "Q2_002_action",
+      "metadata": {
+        "source_item_id": "Q3_001",
+        "correct_choice": "",
+        "explanation": "개선된 질문은 '물체의 무게를 정확히 측정하는 과학 실험에서 측정 오차를 줄이려면 어떤 방법을 사용해야 할까요?'와 같이 주제, 상황, 원하는 답의 형태를 명확히 해야 합니다.",
+        "learning_point": "질문을 개선할 때는 주제, 상황, 원하는 답의 형태를 더 명확히 해야 합니다.",
+        "choices": [],
+        "quiz_type": "question_improvement",
+        "situation": "",
+        "stage_level": "",
+        "ai_question": ""
+      }
+    },
+    {
+      "unit_id": "Q2_002_action",
+      "interaction_type": "free_text_input",
+      "title": "상황 카드 기반 질문 작성",
+      "learner_action": "조선 시대 왕의 정책 중 백성들에게 가장 큰 영향을 준 정책",
+      "system_response": "조선 시대 왕의 정책 중 백성들에게 가장 큰 영향을 준 정책",
+      "input_format": "free_text",
+      "feedback_rule": "사용자 응답 후 정답, 해설, 학습 포인트를 포함한 결과 피드백을 보여 준다.",
+      "learning_dimension": "목적성",
+      "next_step": "Q2_002_feedback",
+      "metadata": {
+        "source_item_id": "Q2_002",
+        "quiz_type": "situation_card",
+        "difficulty": "main_advanced",
+        "topic_context": "역사 수업",
+        "original_question": "이 상황에서 어떤 질문을 할 수 있을까요?",
+        "situation": "조선 시대 왕의 정책 중 백성들에게 가장 큰 영향을 준 정책"
+      }
+    },
+    {
+      "unit_id": "Q2_002_feedback",
+      "interaction_type": "feedback",
+      "title": "상황 카드 기반 질문 작성 결과",
+      "learner_action": "",
+      "system_response": "목적성을 고려한 질문은 '조선 시대 왕들의 정책 중 백성들의 생활에 가장 큰 변화를 준 정책은 무엇인가요?'와 같이 명확한 목적을 가진 질문이어야 합니다.",
+      "input_format": "",
+      "feedback_rule": "정답, 해설, 학습 포인트를 보여 주고 다음 단계로 이동시킨다.",
+      "learning_dimension": "목적성",
+      "next_step": "Q4_001_action",
+      "metadata": {
+        "source_item_id": "Q2_002",
+        "correct_choice": "",
+        "explanation": "목적성을 고려한 질문은 '조선 시대 왕들의 정책 중 백성들의 생활에 가장 큰 변화를 준 정책은 무엇인가요?'와 같이 명확한 목적을 가진 질문이어야 합니다.",
+        "learning_point": "질문의 목적성을 높이려면 질문의 목적을 명확히 해야 합니다.",
+        "choices": [],
+        "quiz_type": "situation_card",
+        "situation": "조선 시대 왕의 정책 중 백성들에게 가장 큰 영향을 준 정책",
+        "stage_level": "",
+        "ai_question": ""
+      }
+    },
+    {
+      "unit_id": "Q4_001_action",
+      "interaction_type": "free_text_input",
+      "title": "AI 배틀",
+      "learner_action": "AI의 질문보다 더 맥락성이 높은 질문을 만들어 보세요.",
+      "system_response": "학교 급식 메뉴 개선",
+      "input_format": "free_text",
+      "feedback_rule": "사용자 응답 후 정답, 해설, 학습 포인트를 포함한 결과 피드백을 보여 준다.",
+      "learning_dimension": "맥락성",
+      "next_step": "Q4_001_feedback",
+      "metadata": {
+        "source_item_id": "Q4_001",
+        "quiz_type": "battle",
+        "difficulty": "main_advanced",
+        "topic_context": "맥락성",
+        "original_question": "AI의 질문보다 더 맥락성이 높은 질문을 만들어 보세요.",
+        "situation": "학교 급식 메뉴 개선",
+        "stage_level": "초급",
+        "ai_question": "학교 급식 메뉴를 더 맛있게 만들려면 어떻게 해야 할까요?",
+        "battle_rounds": 3,
+        "battle_win_threshold": 2
+      }
+    },
+    {
+      "unit_id": "Q4_001_feedback",
+      "interaction_type": "feedback",
+      "title": "AI 배틀 결과",
+      "learner_action": "",
+      "system_response": "맥락성이 높은 질문은 '학생들이 가장 싫어하는 학교 급식 메뉴의 문제점을 해결하기 위한 방법은 무엇인가요?'와 같이 구체적인 상황과 문제점을 반영한 질문이어야 합니다.",
+      "input_format": "",
+      "feedback_rule": "정답, 해설, 학습 포인트를 보여 주고 다음 단계로 이동시킨다.",
+      "learning_dimension": "맥락성",
+      "next_step": "Q4_001_battle_final",
+      "metadata": {
+        "source_item_id": "Q4_001",
+        "correct_choice": "",
+        "explanation": "맥락성이 높은 질문은 '학생들이 가장 싫어하는 학교 급식 메뉴의 문제점을 해결하기 위한 방법은 무엇인가요?'와 같이 구체적인 상황과 문제점을 반영한 질문이어야 합니다.",
+        "learning_point": "AI 배틀에서는 상황 맥락을 더 명확히 반영한 질문을 만들어야 합니다.",
+        "choices": [],
+        "quiz_type": "battle",
+        "situation": "학교 급식 메뉴 개선",
+        "stage_level": "초급",
+        "ai_question": "학교 급식 메뉴를 더 맛있게 만들려면 어떻게 해야 할까요?"
+      }
+    },
+    {
+      "unit_id": "Q4_001_battle_final",
+      "interaction_type": "score_summary",
+      "title": "AI 배틀 배틀 결과",
+      "learner_action": "",
+      "system_response": "배틀 승패와 보너스 점수를 요약해 보여 준다.",
+      "input_format": "",
+      "feedback_rule": "배틀 종료 후 승패 요약과 다음 세션 결과 진입을 안내한다.",
+      "learning_dimension": "",
+      "next_step": "session_summary",
+      "metadata": {
+        "source_item_id": "Q4_001",
+        "battle_rounds": 3,
+        "battle_win_threshold": 2,
+        "stage_level": "초급"
+      }
+    },
+    {
+      "unit_id": "session_summary",
+      "interaction_type": "score_summary",
+      "title": "세션 요약",
+      "learner_action": "",
+      "system_response": "전체 세션 결과와 학습 포인트를 요약해 보여 준다.",
+      "input_format": "",
+      "feedback_rule": "세션 종료 시 전체 결과를 요약한다.",
+      "learning_dimension": "",
+      "next_step": "END",
+      "metadata": {
+        "source": "quiz_session"
+      }
+    }
+  ],
+  "flow_notes": [
+    "Q1(선택) → Q2(작성) → Q3(개선) → Q4(배틀) → Q5(종합) 순서로 퀘스트를 진행합니다.",
+    "각 퀘스트는 주제, 상황, 원하는 답의 형태를 고려하여 질문을 작성하거나 개선합니다.",
+    "AI 배틀에서는 AI의 질문과 비교하여 더 나은 질문을 만들어야 합니다."
+  ],
+  "evaluation_rules": {
+    "multiple_choice": {
+      "correct_choice": 10,
+      "incorrect_choice": 0
+    },
+    "situation_card": {
+      "context_match": 5,
+      "clarity": 5
+    },
+    "question_improvement": {
+      "specificity": 5,
+      "context": 5
+    },
+    "battle": {
+      "win_against_ai": 10,
+      "lose_to_ai": 5,
+      "retries_allowed": 3
+    },
+    "mode": "quiz",
+    "expected_total": 5,
+    "feedback_type": "feedback",
+    "feedback_types": {
+      "feedback": "정답/해설/결과에 대한 일반 피드백",
+      "coaching_feedback": "사용자 자유 입력을 바탕으로 개선 방향을 제안하는 코칭형 피드백"
+    }
+  },
+  "semantic_validation": {
+    "total_items": 5,
+    "quiz_type_counts": {
+      "multiple_choice": 1,
+      "situation_card": 2,
+      "question_improvement": 1,
+      "battle": 1
+    },
+    "learning_dimension_counts": {
+      "구체성": 2,
+      "맥락성": 2,
+      "목적성": 1
+    },
+    "learning_dimension_values_valid": true,
+    "quiz_type_distribution_valid": true,
+    "semantic_validator_passed": true,
+    "regeneration_requested": false,
+    "regeneration_count": 0,
+    "regenerated_item_ids": [],
+    "item_results": [
+      {
+        "item_id": "Q1_001",
+        "current_quiz_type": "multiple_choice",
+        "expected_quiz_type": "multiple_choice",
+        "quiz_type_match": true,
+        "current_learning_dimension": "구체성",
+        "expected_learning_dimension": "구체성",
+        "learning_dimension_match": true,
+        "applied_label_corrections": [],
+        "requires_regeneration": false,
+        "reasons": [
+          "문항 quiz_type이 implementation_spec.core_features에 포함됩니다.",
+          "해설 또는 학습 포인트가 구체성을 직접 설명합니다."
+        ]
+      },
+      {
+        "item_id": "Q2_001",
+        "current_quiz_type": "situation_card",
+        "expected_quiz_type": "situation_card",
+        "quiz_type_match": true,
+        "current_learning_dimension": "맥락성",
+        "expected_learning_dimension": "맥락성",
+        "learning_dimension_match": true,
+        "applied_label_corrections": [],
+        "requires_regeneration": false,
+        "reasons": [
+          "문항 quiz_type이 implementation_spec.core_features에 포함됩니다.",
+          "해설 또는 학습 포인트가 맥락성을 직접 설명합니다."
+        ]
+      },
+      {
+        "item_id": "Q2_002",
+        "current_quiz_type": "situation_card",
+        "expected_quiz_type": "situation_card",
+        "quiz_type_match": true,
+        "current_learning_dimension": "목적성",
+        "expected_learning_dimension": "목적성",
+        "learning_dimension_match": true,
+        "applied_label_corrections": [],
+        "requires_regeneration": false,
+        "reasons": [
+          "문항 quiz_type이 implementation_spec.core_features에 포함됩니다.",
+          "해설 또는 학습 포인트가 목적성을 직접 설명합니다."
+        ]
+      },
+      {
+        "item_id": "Q3_001",
+        "current_quiz_type": "question_improvement",
+        "expected_quiz_type": "question_improvement",
+        "quiz_type_match": true,
+        "current_learning_dimension": "구체성",
+        "expected_learning_dimension": "구체성",
+        "learning_dimension_match": true,
+        "applied_label_corrections": [],
+        "requires_regeneration": false,
+        "reasons": [
+          "문항 quiz_type이 implementation_spec.core_features에 포함됩니다.",
+          "정답이나 질문이 대상/조건/세부 정보를 더 구체적으로 만듭니다."
+        ]
+      },
+      {
+        "item_id": "Q4_001",
+        "current_quiz_type": "battle",
+        "expected_quiz_type": "battle",
+        "quiz_type_match": true,
+        "current_learning_dimension": "맥락성",
+        "expected_learning_dimension": "맥락성",
+        "learning_dimension_match": true,
+        "applied_label_corrections": [],
+        "requires_regeneration": false,
+        "reasons": [
+          "문항 quiz_type이 implementation_spec.core_features에 포함됩니다.",
+          "해설 또는 학습 포인트가 맥락성을 직접 설명합니다."
+        ]
+      }
+    ]
+  },
+  "interaction_validation": {
+    "interaction_mode": "quiz",
+    "mode_inference_reason": "quiz markers detected: 점수, 배틀, quest, multiple_choice, question_improvement",
+    "unit_count": 12,
+    "unit_type_counts": {
+      "multiple_choice": 1,
+      "feedback": 5,
+      "free_text_input": 4,
+      "score_summary": 2
+    },
+    "structure_valid": true,
+    "issues": []
+  }
+}

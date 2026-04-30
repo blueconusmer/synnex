@@ -19,5 +19,11 @@ def dump_model(model: SchemaModel) -> str:
     return json.dumps(model.model_dump(mode="json"), ensure_ascii=False, indent=2)
 
 
+def dump_optional_model(model: SchemaModel | None, *, default: str = "없음") -> str:
+    if model is None:
+        return default
+    return dump_model(model)
+
+
 def make_label(english_name: str, korean_name: str) -> AgentLabel:
     return AgentLabel(english_name=english_name, korean_name=korean_name)

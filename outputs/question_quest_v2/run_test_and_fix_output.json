@@ -1,0 +1,17 @@
+{
+  "agent": {
+    "english_name": "Run Test And Fix Agent",
+    "korean_name": "실행·테스트·수정 Agent"
+  },
+  "checks_run": [
+    "py_compile",
+    "streamlit_smoke"
+  ],
+  "failures": [],
+  "fixes_applied": [
+    "No fixes were needed because all local checks passed."
+  ],
+  "remaining_risks": [],
+  "patched_files": [],
+  "should_retry_builder": false
+}

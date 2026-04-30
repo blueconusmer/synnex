@@ -28,6 +28,10 @@ class ImplementationSpec(SchemaModel):
         default=2,
         description="Reference item count per feature type for downstream prompts/context.",
     )
+    content_distribution: dict[str, int] = Field(
+        default_factory=dict,
+        description="Optional service-specific item distribution keyed by content type.",
+    )
     content_interaction_direction: list[str] = Field(
         default_factory=list,
         description="Rules for content and interaction generation.",
@@ -64,6 +68,7 @@ def parse_markdown_spec(path: Path) -> ImplementationSpec:
         core_features=_extract_core_features(sections, content_interaction_direction),
         total_count=8,
         items_per_type=2,
+        content_distribution={},
         content_interaction_direction=content_interaction_direction,
         excluded_scope=_section_list(sections, "제외 범위"),
         expected_outputs=_section_list(sections, "기대 산출물"),

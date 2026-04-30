@@ -1,0 +1,24 @@
+{
+  "overall_status": "PASS",
+  "issue_type": "NONE",
+  "observed_stage": "none",
+  "target_agent": "NONE",
+  "candidate_agents": [
+    "NONE"
+  ],
+  "reason": "No upstream interpretation issue required a retry.",
+  "recommended_action": "Proceed with the current outputs.",
+  "retry_required": false,
+  "retry_instruction": {
+    "summary": "",
+    "must_fix": [],
+    "evidence": [],
+    "preserve_constraints": []
+  },
+  "llm_judge_used": false,
+  "llm_judge_status": "NOT_USED",
+  "retry_count": 0,
+  "max_retry_count": 3,
+  "should_stop": true,
+  "stop_reason": "No retry required."
+}

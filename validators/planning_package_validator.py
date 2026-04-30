@@ -362,6 +362,35 @@ def _infer_content_distribution(
         .get("Session", {})
         .get("description", "")
     )
+    explicit_counts = _extract_explicit_type_counts(
+        composition=composition,
+        content_types=content_types,
+    )
+    if explicit_counts:
+        return ContentDistribution(
+            item_count_by_type=explicit_counts,
+            total_count=sum(explicit_counts.values()),
+            distribution_source="data_schema.session_composition",
+        )
+
+    quest_sequence_description = (
+        data_schema.get("definitions", {})
+        .get("Session", {})
+        .get("fields", {})
+        .get("quest_sequence", {})
+        .get("description", "")
+    )
+    explicit_counts = _extract_explicit_type_counts(
+        composition=quest_sequence_description,
+        content_types=content_types,
+    )
+    if explicit_counts:
+        return ContentDistribution(
+            item_count_by_type=explicit_counts,
+            total_count=sum(explicit_counts.values()),
+            distribution_source="data_schema.session.quest_sequence",
+        )
+
     bracket_match = re.search(r"\[(.+?)\]", composition)
     if bracket_match and len(content_types) >= 2:
         segments = [part.strip() for part in bracket_match.group(1).split(",")]
@@ -416,6 +445,41 @@ def _infer_content_distribution(
         )
 
     return ContentDistribution()
+
+
+def _extract_explicit_type_counts(
+    *,
+    composition: str,
+    content_types: list[str],
+) -> dict[str, int]:
+    if not composition or not content_types:
+        return {}
+
+    allowed = set(content_types)
+    counts: dict[str, int] = {}
+    bracket_match = re.search(r"\[(.+?)\]", composition)
+    raw_values = bracket_match.group(1) if bracket_match else composition
+    parts = [part.strip() for part in raw_values.split(",") if part.strip()]
+
+    alias_map = {
+        "situationcardadvanced": "situation_card",
+        "situation_card_advanced": "situation_card",
+        "multiplechoice": "multiple_choice",
+        "multiple_choice": "multiple_choice",
+        "questionimprovement": "question_improvement",
+        "question_improvement": "question_improvement",
+        "situationcard": "situation_card",
+        "situation_card": "situation_card",
+    }
+
+    for part in parts:
+        normalized = re.sub(r"[^a-z0-9_]+", "", part.lower())
+        normalized = alias_map.get(normalized, normalized)
+
+        if normalized in allowed:
+            counts[normalized] = counts.get(normalized, 0) + 1
+
+    return counts
 
 
 def _resolve_status(

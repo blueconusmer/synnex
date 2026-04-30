@@ -8,7 +8,7 @@ from schemas.implementation.requirement_mapping import (
     RequirementMappingOutput,
 )
 
-from agents.implementation.helpers import dump_model, load_prompt_text, make_label
+from agents.implementation.helpers import dump_model, dump_optional_model, load_prompt_text, make_label
 
 
 def run_requirement_mapping_agent(
@@ -18,7 +18,8 @@ def run_requirement_mapping_agent(
     """Convert normalized spec analysis into implementation contracts."""
 
     prompt = load_prompt_text("requirement_mapping.md").format(
-        spec_intake_output=dump_model(input_model.spec_intake_output)
+        spec_intake_output=dump_model(input_model.spec_intake_output),
+        retry_instruction=dump_optional_model(input_model.retry_instruction),
     )
     output = llm_client.generate_json(
         prompt=prompt,
