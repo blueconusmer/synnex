@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import Field
 
 from schemas.implementation.common import AgentLabel, GeneratedFile, SchemaModel
@@ -36,6 +38,89 @@ class AppSourceGenerationOutput(SchemaModel):
     )
 
 
+class AppFlowScreen(SchemaModel):
+    screen_id: str = Field(description="Literal screen constant such as SCREEN_START.")
+    purpose: str = Field(default="", description="What this screen is responsible for.")
+    interaction_type: str = Field(
+        default="",
+        description="Interaction type handled on this screen, if any.",
+    )
+    required_ui_elements: list[str] = Field(
+        default_factory=list,
+        description="UI elements or literals that should appear on this screen.",
+    )
+
+
+class AppFlowTransition(SchemaModel):
+    from_screen: str = Field(description="Starting screen constant.")
+    to_screen: str = Field(description="Target screen constant.")
+    trigger: str = Field(default="", description="Event that triggers the transition.")
+    state_assignment: str = Field(
+        description="Literal current_screen assignment required in app.py.",
+    )
+
+
+class AppFlowPath(SchemaModel):
+    target_screen: str = Field(description="Destination screen constant.")
+    trigger: str = Field(default="", description="Condition or trigger for entering this path.")
+    state_assignment: str = Field(
+        default="",
+        description="Literal state assignment that must appear in source.",
+    )
+    notes: str = Field(default="", description="Short explanation of the path.")
+
+
+class AppFlowPlanOutput(SchemaModel):
+    interaction_mode: str = Field(description="Interaction mode the app flow implements.")
+    content_runtime_source: str = Field(
+        description="Primary runtime collection such as quests or interaction_units."
+    )
+    content_loading_order: str = Field(
+        default="outputs_first",
+        description="How app.py loads content files. Must remain outputs_first.",
+    )
+    screens: list[AppFlowScreen] = Field(
+        default_factory=list,
+        description="Screen-level plan for the generated app.",
+    )
+    transitions: list[AppFlowTransition] = Field(
+        default_factory=list,
+        description="Explicit current_screen transitions required by the runtime contract.",
+    )
+    required_functions: list[str] = Field(
+        default_factory=list,
+        description="Function names that must appear in the generated app.",
+    )
+    required_runtime_literals: list[str] = Field(
+        default_factory=list,
+        description="Runtime literals that should appear in generated source.",
+    )
+    forbidden_runtime_literals: list[str] = Field(
+        default_factory=list,
+        description="Legacy runtime access literals that must not appear in source.",
+    )
+    forbidden_raw_runtime_fields: list[str] = Field(
+        default_factory=list,
+        description="Raw quest field literals that must not appear outside normalization helpers.",
+    )
+    data_bindings: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Runtime binding summary, including collection names and field mappings.",
+    )
+    error_path: AppFlowPath | None = Field(
+        default=None,
+        description="Error-handling path that should be reachable in the app flow.",
+    )
+    result_path: AppFlowPath | None = Field(
+        default=None,
+        description="Primary result/completion path that should be reachable in the app flow.",
+    )
+    generation_notes: list[str] = Field(
+        default_factory=list,
+        description="Notes explaining how the plan interprets the service contract.",
+    )
+
+
 class PrototypeBuilderOutput(SchemaModel):
     agent: AgentLabel | None = Field(default=None, description="Agent label metadata.")
     service_name: str = Field(description="Service name for the generated MVP.")
@@ -68,6 +153,10 @@ class PrototypeBuilderOutput(SchemaModel):
         default="llm_generated",
         description="How app.py was produced: llm_generated, fallback_template, or unsupported.",
     )
+    generation_stage: str = Field(
+        default="direct_code",
+        description="Builder generation strategy, for example direct_code or plan_then_code.",
+    )
     fallback_used: bool = Field(
         default=False,
         description="Whether the deterministic fallback template was used.",
@@ -83,6 +172,22 @@ class PrototypeBuilderOutput(SchemaModel):
     reflection_attempts: int = Field(
         default=0,
         description="Number of Builder repair attempts and downstream patch/reflection attempts.",
+    )
+    plan_validation_passed: bool = Field(
+        default=False,
+        description="Whether the intermediate AppFlowPlan passed validation before code generation.",
+    )
+    plan_repair_attempts: int = Field(
+        default=0,
+        description="Number of plan repair attempts performed before code generation.",
+    )
+    plan_summary: list[str] = Field(
+        default_factory=list,
+        description="Short summary of the validated AppFlowPlan and its contract coverage.",
+    )
+    app_flow_plan: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Serialized intermediate AppFlowPlan used for plan-then-code generation.",
     )
     repair_attempted: bool = Field(
         default=False,

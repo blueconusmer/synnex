@@ -13,6 +13,7 @@ from loaders import load_planning_package
 from orchestrator.app_source import build_content_filename, build_streamlit_app_source
 from schemas.implementation.common import GeneratedFile
 from schemas.implementation.prototype_builder import (
+    AppFlowPlanOutput,
     AppSourceGenerationOutput,
     PrototypeBuilderInput,
     PrototypeBuilderOutput,
@@ -39,7 +40,16 @@ INVALID_STREAMLIT_API = "INVALID_STREAMLIT_API"
 PYTHON_SYNTAX_INVALID = "PYTHON_SYNTAX_INVALID"
 MISSING_CONTENT_GUIDANCE = "MISSING_CONTENT_GUIDANCE"
 PLANNING_PACKAGE_RUNTIME_ACCESS = "PLANNING_PACKAGE_RUNTIME_ACCESS"
+PLAN_LOADING_ORDER_INVALID = "PLAN_LOADING_ORDER_INVALID"
+PLAN_CONTENT_RUNTIME_SOURCE_INVALID = "PLAN_CONTENT_RUNTIME_SOURCE_INVALID"
+PLAN_SCREENS_MISSING = "PLAN_SCREENS_MISSING"
+PLAN_TRANSITIONS_MISSING = "PLAN_TRANSITIONS_MISSING"
+PLAN_FUNCTIONS_MISSING = "PLAN_FUNCTIONS_MISSING"
+PLAN_RUNTIME_LITERAL_MISSING = "PLAN_RUNTIME_LITERAL_MISSING"
+PLAN_ERROR_PATH_MISSING = "PLAN_ERROR_PATH_MISSING"
+PLAN_RESULT_PATH_MISSING = "PLAN_RESULT_PATH_MISSING"
 MAX_BUILDER_REPAIR_ATTEMPTS = 2
+MAX_PLAN_REPAIR_ATTEMPTS = 2
 REPAIR_FRIENDLY_CODES = {
     CONTRACT_MISSING_MARKER,
     RESULT_FLOW_MISSING,
@@ -50,7 +60,18 @@ REPAIR_FRIENDLY_CODES = {
     ROOT_FIRST_CONTENT_LOADING,
     RAW_FIELD_ACCESS,
     INVALID_STREAMLIT_API,
+    PYTHON_SYNTAX_INVALID,
     MISSING_CONTENT_GUIDANCE,
+}
+PLAN_REPAIR_FRIENDLY_CODES = {
+    PLAN_LOADING_ORDER_INVALID,
+    PLAN_CONTENT_RUNTIME_SOURCE_INVALID,
+    PLAN_SCREENS_MISSING,
+    PLAN_TRANSITIONS_MISSING,
+    PLAN_FUNCTIONS_MISSING,
+    PLAN_RUNTIME_LITERAL_MISSING,
+    PLAN_ERROR_PATH_MISSING,
+    PLAN_RESULT_PATH_MISSING,
 }
 
 
@@ -120,6 +141,33 @@ class InvalidAppSourceError(ValueError):
         self.contract_items = contract_items or []
 
 
+class InvalidAppFlowPlanError(ValueError):
+    """Raised when the intermediate AppFlowPlan does not satisfy the runtime contract."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        contract_items: list[str] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.contract_items = contract_items or []
+
+
+@dataclass(frozen=True)
+class ValidatedAppFlowPlanResult:
+    plan: AppFlowPlanOutput
+    generation_notes: list[str]
+    repair_attempts: int = 0
+    repair_attempted: bool = False
+    initial_validation_error_code: str = ""
+    repair_validation_error_code: str = ""
+    repair_history: list[str] = field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class ValidatedAppSourceResult:
     app_source: str
@@ -129,6 +177,26 @@ class ValidatedAppSourceResult:
     initial_validation_error_code: str = ""
     repair_validation_error_code: str = ""
     repair_history: list[str] = field(default_factory=list)
+
+
+class BuilderPlanRepairFailed(RuntimeError):
+    def __init__(
+        self,
+        final_error: InvalidAppFlowPlanError,
+        *,
+        repair_attempts: int,
+        repair_attempted: bool,
+        initial_validation_error_code: str,
+        repair_validation_error_code: str,
+        repair_history: list[str],
+    ) -> None:
+        super().__init__(final_error.message)
+        self.final_error = final_error
+        self.repair_attempts = repair_attempts
+        self.repair_attempted = repair_attempted
+        self.initial_validation_error_code = initial_validation_error_code
+        self.repair_validation_error_code = repair_validation_error_code
+        self.repair_history = repair_history
 
 
 class BuilderRepairFailed(RuntimeError):
@@ -200,6 +268,11 @@ def run_prototype_builder_agent(
     fallback_used = False
     fallback_reason = ""
     generation_mode = "llm_generated"
+    generation_stage = "plan_then_code"
+    plan_validation_passed = False
+    plan_repair_attempts = 0
+    plan_summary: list[str] = []
+    app_flow_plan: dict[str, object] = {}
     reflection_attempts = 0
     repair_attempted = False
     initial_validation_error_code = ""
@@ -215,12 +288,31 @@ def run_prototype_builder_agent(
     ]
 
     try:
+        plan_result = _generate_validated_app_flow_plan_with_llm(
+            input_model=input_model,
+            llm_client=llm_client,
+            content_filename=content_filename,
+            package_context=package_context,
+            builder_runtime_contract=builder_runtime_contract,
+        )
+        plan_validation_passed = True
+        plan_repair_attempts = plan_result.repair_attempts
+        plan_summary = _build_plan_summary(
+            plan_result.plan,
+            builder_runtime_contract=builder_runtime_contract,
+            repair_attempts=plan_result.repair_attempts,
+        )
+        app_flow_plan = plan_result.plan.model_dump(mode="json")
+        runtime_notes.extend(plan_result.generation_notes)
+        runtime_notes.extend(plan_result.repair_history)
+        runtime_notes.append("AppFlowPlan validated before app.py generation.")
         generation_result = _generate_validated_app_source_with_llm(
             input_model=input_model,
             llm_client=llm_client,
             content_filename=content_filename,
             package_context=package_context,
             builder_runtime_contract=builder_runtime_contract,
+            app_flow_plan=plan_result.plan,
         )
         app_source = generation_result.app_source
         runtime_notes.extend(generation_result.generation_notes)
@@ -233,6 +325,27 @@ def run_prototype_builder_agent(
             f"Builder runtime contract satisfied: {builder_runtime_contract.to_summary_string()}."
         )
         runtime_notes.append("app.py는 LLM 생성 결과를 사용했다.")
+    except BuilderPlanRepairFailed as exc:
+        builder_errors.extend(
+            _dedupe_preserve_order(
+                [
+                    LLM_OUTPUT_INVALID,
+                    exc.initial_validation_error_code,
+                    exc.repair_validation_error_code,
+                    FALLBACK_USED,
+                ]
+            )
+        )
+        fallback_used = True
+        fallback_reason = (
+            f"{LLM_OUTPUT_INVALID}: {exc.final_error.code}: {exc.final_error.message}"
+        )
+        generation_mode = "fallback_template"
+        app_source = build_fallback_app_source(input_model)
+        runtime_notes.append("AppFlowPlan 검증이 실패해 fallback template을 사용했다.")
+        plan_repair_attempts = exc.repair_attempts
+        plan_summary = [f"AppFlowPlan failed with {exc.final_error.code}."] + exc.repair_history
+        runtime_notes.extend(exc.repair_history)
     except BuilderRepairFailed as exc:
         builder_errors.extend(
             _dedupe_preserve_order(
@@ -301,10 +414,15 @@ def run_prototype_builder_agent(
         runtime_notes=runtime_notes,
         integration_notes=integration_notes,
         generation_mode=generation_mode,
+        generation_stage=generation_stage,
         fallback_used=fallback_used,
         fallback_reason=fallback_reason,
         generation_inputs_summary=generation_inputs_summary,
         reflection_attempts=reflection_attempts,
+        plan_validation_passed=plan_validation_passed,
+        plan_repair_attempts=plan_repair_attempts,
+        plan_summary=plan_summary,
+        app_flow_plan=app_flow_plan,
         repair_attempted=repair_attempted,
         initial_validation_error_code=initial_validation_error_code,
         repair_validation_error_code=repair_validation_error_code,
@@ -351,6 +469,214 @@ def build_fallback_app_source(input_model: PrototypeBuilderInput) -> str:
     )
 
 
+def _generate_app_flow_plan_with_llm(
+    *,
+    input_model: PrototypeBuilderInput,
+    llm_client: LLMClient,
+    content_filename: str,
+    package_context: dict[str, str],
+    builder_runtime_contract: BuilderRuntimeContract,
+) -> AppFlowPlanOutput:
+    prompt = _build_app_flow_plan_prompt(
+        input_model=input_model,
+        content_filename=content_filename,
+        package_context=package_context,
+        builder_runtime_contract=builder_runtime_contract,
+    )
+    return llm_client.generate_json(
+        prompt=prompt,
+        response_model=AppFlowPlanOutput,
+        system_prompt=(
+            "You are a senior software architect generating one structured AppFlowPlan "
+            "for a Streamlit MVP. Return JSON only."
+        ),
+    )
+
+
+def _generate_validated_app_flow_plan_with_llm(
+    *,
+    input_model: PrototypeBuilderInput,
+    llm_client: LLMClient,
+    content_filename: str,
+    package_context: dict[str, str],
+    builder_runtime_contract: BuilderRuntimeContract,
+) -> ValidatedAppFlowPlanResult:
+    generated_plan = _generate_app_flow_plan_with_llm(
+        input_model=input_model,
+        llm_client=llm_client,
+        content_filename=content_filename,
+        package_context=package_context,
+        builder_runtime_contract=builder_runtime_contract,
+    )
+    try:
+        validated_plan = _validate_generated_app_flow_plan(
+            generated_plan=generated_plan,
+            builder_runtime_contract=builder_runtime_contract,
+        )
+        return ValidatedAppFlowPlanResult(
+            plan=validated_plan,
+            generation_notes=_dedupe_preserve_order(
+                [
+                    *generated_plan.generation_notes,
+                    "AppFlowPlan passed deterministic validation.",
+                ]
+            ),
+        )
+    except InvalidAppFlowPlanError as first_error:
+        return _repair_invalid_app_flow_plan_with_llm(
+            input_model=input_model,
+            llm_client=llm_client,
+            content_filename=content_filename,
+            package_context=package_context,
+            builder_runtime_contract=builder_runtime_contract,
+            invalid_plan=generated_plan,
+            first_error=first_error,
+        )
+
+
+def _repair_invalid_app_flow_plan_with_llm(
+    *,
+    input_model: PrototypeBuilderInput,
+    llm_client: LLMClient,
+    content_filename: str,
+    package_context: dict[str, str],
+    builder_runtime_contract: BuilderRuntimeContract,
+    invalid_plan: AppFlowPlanOutput,
+    first_error: InvalidAppFlowPlanError,
+) -> ValidatedAppFlowPlanResult:
+    repair_history = [
+        _format_plan_repair_history_entry(
+            attempt_number=0,
+            error=first_error,
+            status="FAILED",
+            note="Initial AppFlowPlan failed validation.",
+        )
+    ]
+    if not _is_plan_repair_friendly_error(first_error):
+        raise BuilderPlanRepairFailed(
+            first_error,
+            repair_attempts=0,
+            repair_attempted=False,
+            initial_validation_error_code=first_error.code,
+            repair_validation_error_code="",
+            repair_history=repair_history + ["Plan repair skipped: failure was not repair-friendly."],
+        )
+
+    previous_error = first_error
+    current_invalid_plan = invalid_plan
+    repair_attempts = 0
+    generation_notes = list(invalid_plan.generation_notes)
+
+    for attempt_number in range(1, MAX_PLAN_REPAIR_ATTEMPTS + 1):
+        repair_attempts = attempt_number
+        repair_prompt = _build_app_flow_plan_repair_prompt(
+            input_model=input_model,
+            content_filename=content_filename,
+            invalid_plan=current_invalid_plan,
+            validation_error=previous_error,
+            package_context=package_context,
+            builder_runtime_contract=builder_runtime_contract,
+            repair_attempt_number=attempt_number,
+            max_repair_attempts=MAX_PLAN_REPAIR_ATTEMPTS,
+            repair_history=repair_history,
+        )
+        try:
+            repaired_plan = llm_client.generate_json(
+                prompt=repair_prompt,
+                response_model=AppFlowPlanOutput,
+                system_prompt=(
+                    "You repair one AppFlowPlan so it satisfies the runtime contract. "
+                    "Return JSON only."
+                ),
+            )
+        except Exception as exc:
+            repair_history.append(
+                f"Plan repair attempt {attempt_number} failed before validation: LLM_CALL_FAILED ({exc})."
+            )
+            raise BuilderPlanRepairFailed(
+                InvalidAppFlowPlanError(
+                    LLM_CALL_FAILED,
+                    f"Plan repair attempt {attempt_number} LLM call failed: {exc}.",
+                ),
+                repair_attempts=repair_attempts,
+                repair_attempted=True,
+                initial_validation_error_code=first_error.code,
+                repair_validation_error_code=LLM_CALL_FAILED,
+                repair_history=repair_history,
+            ) from exc
+
+        try:
+            validated_plan = _validate_generated_app_flow_plan(
+                generated_plan=repaired_plan,
+                builder_runtime_contract=builder_runtime_contract,
+            )
+            repair_history.append(
+                f"Plan repair attempt {attempt_number} succeeded after {previous_error.code}."
+            )
+            return ValidatedAppFlowPlanResult(
+                plan=validated_plan,
+                generation_notes=_dedupe_preserve_order(
+                    [
+                        *generation_notes,
+                        f"Initial AppFlowPlan failed validation once with {first_error.code}.",
+                        *repaired_plan.generation_notes,
+                        "AppFlowPlan passed deterministic validation after repair.",
+                    ]
+                ),
+                repair_attempts=repair_attempts,
+                repair_attempted=True,
+                initial_validation_error_code=first_error.code,
+                repair_validation_error_code="",
+                repair_history=repair_history,
+            )
+        except InvalidAppFlowPlanError as repair_error:
+            repair_history.append(
+                _format_plan_repair_history_entry(
+                    attempt_number=attempt_number,
+                    error=repair_error,
+                    status="FAILED",
+                    note=f"Plan repair attempt {attempt_number} failed validation.",
+                )
+            )
+            stop_reason = _plan_repair_stop_reason(previous_error, repair_error)
+            if stop_reason:
+                repair_history.append(
+                    f"Plan repair stopped after attempt {attempt_number}: {stop_reason}"
+                )
+                raise BuilderPlanRepairFailed(
+                    repair_error,
+                    repair_attempts=repair_attempts,
+                    repair_attempted=True,
+                    initial_validation_error_code=first_error.code,
+                    repair_validation_error_code=repair_error.code,
+                    repair_history=repair_history,
+                )
+            if not _is_plan_repair_friendly_error(repair_error):
+                repair_history.append(
+                    f"Plan repair stopped after attempt {attempt_number}: failure was not repair-friendly."
+                )
+                raise BuilderPlanRepairFailed(
+                    repair_error,
+                    repair_attempts=repair_attempts,
+                    repair_attempted=True,
+                    initial_validation_error_code=first_error.code,
+                    repair_validation_error_code=repair_error.code,
+                    repair_history=repair_history,
+                )
+            previous_error = repair_error
+            current_invalid_plan = repaired_plan
+
+    raise BuilderPlanRepairFailed(
+        previous_error,
+        repair_attempts=repair_attempts,
+        repair_attempted=repair_attempts > 0,
+        initial_validation_error_code=first_error.code,
+        repair_validation_error_code=previous_error.code,
+        repair_history=repair_history
+        + [f"Plan repair budget exhausted after {repair_attempts} attempts."],
+    )
+
+
 def _generate_app_source_with_llm(
     *,
     input_model: PrototypeBuilderInput,
@@ -358,12 +684,14 @@ def _generate_app_source_with_llm(
     content_filename: str,
     package_context: dict[str, str],
     builder_runtime_contract: BuilderRuntimeContract,
+    app_flow_plan: AppFlowPlanOutput,
 ) -> AppSourceGenerationOutput:
     prompt = _build_app_generation_prompt(
         input_model=input_model,
         content_filename=content_filename,
         package_context=package_context,
         builder_runtime_contract=builder_runtime_contract,
+        app_flow_plan=app_flow_plan,
     )
     return llm_client.generate_json(
         prompt=prompt,
@@ -382,6 +710,7 @@ def _generate_validated_app_source_with_llm(
     content_filename: str,
     package_context: dict[str, str],
     builder_runtime_contract: BuilderRuntimeContract,
+    app_flow_plan: AppFlowPlanOutput,
 ) -> ValidatedAppSourceResult:
     generated_app = _generate_app_source_with_llm(
         input_model=input_model,
@@ -389,6 +718,7 @@ def _generate_validated_app_source_with_llm(
         content_filename=content_filename,
         package_context=package_context,
         builder_runtime_contract=builder_runtime_contract,
+        app_flow_plan=app_flow_plan,
     )
     try:
         validated_source = _validate_generated_app_source(
@@ -414,6 +744,7 @@ def _generate_validated_app_source_with_llm(
             first_error=first_error,
             generated_app=generated_app,
             builder_runtime_contract=builder_runtime_contract,
+            app_flow_plan=app_flow_plan,
         )
 
 
@@ -426,6 +757,7 @@ def _repair_invalid_app_source_with_llm(
     first_error: InvalidAppSourceError,
     generated_app: AppSourceGenerationOutput,
     builder_runtime_contract: BuilderRuntimeContract,
+    app_flow_plan: AppFlowPlanOutput,
 ) -> ValidatedAppSourceResult:
     repair_history = [
         _format_repair_history_entry(
@@ -458,6 +790,7 @@ def _repair_invalid_app_source_with_llm(
             invalid_source=current_invalid_source,
             validation_error=previous_error,
             builder_runtime_contract=builder_runtime_contract,
+            app_flow_plan=app_flow_plan,
             repair_attempt_number=attempt_number,
             max_repair_attempts=MAX_BUILDER_REPAIR_ATTEMPTS,
             repair_history=repair_history,
@@ -557,12 +890,150 @@ def _repair_invalid_app_source_with_llm(
     )
 
 
+def _build_app_flow_plan_prompt(
+    *,
+    input_model: PrototypeBuilderInput,
+    content_filename: str,
+    package_context: dict[str, str],
+    builder_runtime_contract: BuilderRuntimeContract,
+) -> str:
+    prompt_template = load_prompt_text("prototype_builder_plan.md")
+    expected_content_runtime_source = _expected_content_runtime_source(builder_runtime_contract)
+    context = {
+        "target_framework": input_model.implementation_spec.target_framework,
+        "service_name": input_model.implementation_spec.service_name,
+        "service_purpose": input_model.implementation_spec.service_purpose,
+        "content_filename": content_filename,
+        "interaction_mode": input_model.content_interaction_output.interaction_mode,
+        "interaction_mode_reason": input_model.content_interaction_output.interaction_mode_reason,
+        "expected_content_runtime_source": expected_content_runtime_source,
+        "required_screen_constants": builder_runtime_contract.required_screen_constants,
+        "required_transition_assignments": builder_runtime_contract.required_transition_assignments,
+        "required_functions": builder_runtime_contract.required_functions,
+        "required_runtime_literals": builder_runtime_contract.required_runtime_literals,
+        "forbidden_runtime_literals": builder_runtime_contract.forbidden_runtime_literals,
+        "forbidden_raw_runtime_fields": builder_runtime_contract.forbidden_raw_runtime_fields,
+        "quest_sequence": builder_runtime_contract.quest_sequence,
+        "spec_intake_output": input_model.spec_intake_output.model_dump(mode="json"),
+        "requirement_mapping_output": input_model.requirement_mapping_output.model_dump(mode="json"),
+        "content_interaction_output": input_model.content_interaction_output.model_dump(mode="json"),
+        "interface_spec": package_context.get("interface_spec", ""),
+        "state_machine": package_context.get("state_machine", ""),
+        "data_schema": package_context.get("data_schema", ""),
+        "prompt_spec": package_context.get("prompt_spec", ""),
+        "builder_runtime_contract": builder_runtime_contract.to_prompt_block(),
+    }
+    return prompt_template.format(
+        target_framework=context["target_framework"],
+        service_name=context["service_name"],
+        service_purpose=context["service_purpose"],
+        content_filename=context["content_filename"],
+        interaction_mode=context["interaction_mode"],
+        interaction_mode_reason=context["interaction_mode_reason"],
+        expected_content_runtime_source=context["expected_content_runtime_source"],
+        required_screen_constants=json.dumps(
+            context["required_screen_constants"],
+            ensure_ascii=False,
+        ),
+        required_transition_assignments=json.dumps(
+            context["required_transition_assignments"],
+            ensure_ascii=False,
+        ),
+        required_functions=json.dumps(
+            context["required_functions"],
+            ensure_ascii=False,
+        ),
+        required_runtime_literals=json.dumps(
+            context["required_runtime_literals"],
+            ensure_ascii=False,
+        ),
+        forbidden_runtime_literals=json.dumps(
+            context["forbidden_runtime_literals"],
+            ensure_ascii=False,
+        ),
+        forbidden_raw_runtime_fields=json.dumps(
+            context["forbidden_raw_runtime_fields"],
+            ensure_ascii=False,
+        ),
+        quest_sequence=json.dumps(context["quest_sequence"], ensure_ascii=False),
+        spec_intake_output=json.dumps(
+            context["spec_intake_output"],
+            ensure_ascii=False,
+            indent=2,
+        ),
+        requirement_mapping_output=json.dumps(
+            context["requirement_mapping_output"],
+            ensure_ascii=False,
+            indent=2,
+        ),
+        content_interaction_output=json.dumps(
+            context["content_interaction_output"],
+            ensure_ascii=False,
+            indent=2,
+        ),
+        interface_spec=context["interface_spec"],
+        state_machine=context["state_machine"],
+        data_schema=context["data_schema"],
+        prompt_spec=context["prompt_spec"],
+        builder_runtime_contract=context["builder_runtime_contract"],
+    )
+
+
+def _build_app_flow_plan_repair_prompt(
+    *,
+    input_model: PrototypeBuilderInput,
+    content_filename: str,
+    invalid_plan: AppFlowPlanOutput,
+    validation_error: InvalidAppFlowPlanError,
+    package_context: dict[str, str],
+    builder_runtime_contract: BuilderRuntimeContract,
+    repair_attempt_number: int,
+    max_repair_attempts: int,
+    repair_history: list[str],
+) -> str:
+    failed_items = validation_error.contract_items or [validation_error.message]
+    expected_content_runtime_source = _expected_content_runtime_source(builder_runtime_contract)
+    return (
+        "The previous generated AppFlowPlan failed validation.\n"
+        f"Plan repair attempt: {repair_attempt_number} / {max_repair_attempts}\n"
+        f"Validation error code: {validation_error.code}\n"
+        f"Validation error: {validation_error.message}\n\n"
+        "Repair targets:\n"
+        f"- interaction_mode: {input_model.content_interaction_output.interaction_mode}\n"
+        f"- expected_content_runtime_source: {expected_content_runtime_source}\n"
+        f"- required_screen_constants: {json.dumps(builder_runtime_contract.required_screen_constants, ensure_ascii=False)}\n"
+        f"- required_transition_assignments: {json.dumps(builder_runtime_contract.required_transition_assignments, ensure_ascii=False)}\n"
+        f"- required_functions: {json.dumps(builder_runtime_contract.required_functions, ensure_ascii=False)}\n"
+        f"- required_runtime_literals: {json.dumps(builder_runtime_contract.required_runtime_literals, ensure_ascii=False)}\n"
+        f"- forbidden_runtime_literals: {json.dumps(builder_runtime_contract.forbidden_runtime_literals, ensure_ascii=False)}\n"
+        f"- forbidden_raw_runtime_fields: {json.dumps(builder_runtime_contract.forbidden_raw_runtime_fields, ensure_ascii=False)}\n\n"
+        "Preserve the valid parts of the existing plan and fix only the missing flow contract items.\n"
+        "Do not switch interaction_mode or content_runtime_source unless the validator explicitly says they are wrong.\n"
+        "Keep required screen constants, required functions, and transitions aligned with the builder runtime contract.\n\n"
+        "Builder runtime contract:\n"
+        f"{builder_runtime_contract.to_prompt_block()}\n\n"
+        "Missing or invalid plan items:\n"
+        f"{json.dumps(failed_items, ensure_ascii=False, indent=2)}\n\n"
+        "Plan repair history so far:\n"
+        f"{json.dumps(repair_history, ensure_ascii=False, indent=2)}\n\n"
+        "Reference planning context:\n"
+        f"- content_filename: {content_filename}\n"
+        f"- interaction_mode: {input_model.content_interaction_output.interaction_mode}\n"
+        f"- interface_spec_present: {json.dumps(bool(package_context.get('interface_spec')))}\n"
+        f"- state_machine_present: {json.dumps(bool(package_context.get('state_machine')))}\n"
+        f"- data_schema_present: {json.dumps(bool(package_context.get('data_schema')))}\n\n"
+        "Previous invalid AppFlowPlan JSON:\n"
+        f"{json.dumps(invalid_plan.model_dump(mode='json'), ensure_ascii=False, indent=2)}"
+    )
+
+
 def _build_app_generation_prompt(
     *,
     input_model: PrototypeBuilderInput,
     content_filename: str,
     package_context: dict[str, str],
     builder_runtime_contract: BuilderRuntimeContract,
+    app_flow_plan: AppFlowPlanOutput,
 ) -> str:
     spec = input_model.implementation_spec
     prompt_template = load_prompt_text("prototype_builder.md")
@@ -589,6 +1060,7 @@ def _build_app_generation_prompt(
         "flow_notes": input_model.content_interaction_output.flow_notes,
         "evaluation_rules": input_model.content_interaction_output.evaluation_rules,
         "builder_runtime_contract": builder_runtime_contract.to_prompt_block(),
+        "validated_app_flow_plan": app_flow_plan.model_dump(mode="json"),
     }
     return prompt_template.format(
         target_framework=context["target_framework"],
@@ -622,6 +1094,11 @@ def _build_app_generation_prompt(
             indent=2,
         ),
         builder_runtime_contract=context["builder_runtime_contract"],
+        validated_app_flow_plan=json.dumps(
+            context["validated_app_flow_plan"],
+            ensure_ascii=False,
+            indent=2,
+        ),
     )
 
 
@@ -632,6 +1109,7 @@ def _build_app_validation_repair_prompt(
     invalid_source: str,
     validation_error: InvalidAppSourceError,
     builder_runtime_contract: BuilderRuntimeContract,
+    app_flow_plan: AppFlowPlanOutput,
     repair_attempt_number: int,
     max_repair_attempts: int,
     repair_history: list[str],
@@ -651,6 +1129,8 @@ def _build_app_validation_repair_prompt(
         "If a missing contract item is shown as a literal assignment or literal marker, insert that exact literal.\n\n"
         "Builder runtime contract:\n"
         f"{builder_runtime_contract.to_prompt_block()}\n\n"
+        "Validated AppFlowPlan:\n"
+        f"{json.dumps(app_flow_plan.model_dump(mode='json'), ensure_ascii=False, indent=2)}\n\n"
         "Missing or invalid contract items:\n"
         f"{json.dumps(failed_items, ensure_ascii=False, indent=2)}\n\n"
         "Repair history so far:\n"
@@ -690,6 +1170,39 @@ def _repair_stop_reason(
     return ""
 
 
+def _is_plan_repair_friendly_error(error: InvalidAppFlowPlanError) -> bool:
+    contract_items = error.contract_items or [error.message]
+    return error.code in PLAN_REPAIR_FRIENDLY_CODES and len(contract_items) <= 3
+
+
+def _plan_repair_stop_reason(
+    previous_error: InvalidAppFlowPlanError,
+    current_error: InvalidAppFlowPlanError,
+) -> str:
+    previous_items = previous_error.contract_items or [previous_error.message]
+    current_items = current_error.contract_items or [current_error.message]
+    if current_error.code == previous_error.code:
+        return f"same validation error code repeated ({current_error.code})"
+    if current_items == previous_items:
+        return "plan contract items did not change between repair attempts"
+    return ""
+
+
+def _format_plan_repair_history_entry(
+    *,
+    attempt_number: int,
+    error: InvalidAppFlowPlanError,
+    status: str,
+    note: str,
+) -> str:
+    contract_items = ", ".join(error.contract_items or []) or "none"
+    label = "initial_plan_validation" if attempt_number == 0 else f"plan_repair_attempt_{attempt_number}"
+    return (
+        f"{label}: {status} code={error.code}; "
+        f"contract_items=[{contract_items}]; note={note}"
+    )
+
+
 def _format_repair_history_entry(
     *,
     attempt_number: int,
@@ -703,6 +1216,130 @@ def _format_repair_history_entry(
         f"{label}: {status} code={error.code}; "
         f"contract_items=[{contract_items}]; note={note}"
     )
+
+
+def _validate_generated_app_flow_plan(
+    *,
+    generated_plan: AppFlowPlanOutput,
+    builder_runtime_contract: BuilderRuntimeContract,
+) -> AppFlowPlanOutput:
+    if generated_plan.interaction_mode != builder_runtime_contract.interaction_mode:
+        raise InvalidAppFlowPlanError(
+            PLAN_CONTENT_RUNTIME_SOURCE_INVALID,
+            "AppFlowPlan interaction_mode does not match the Builder runtime contract.",
+            contract_items=[builder_runtime_contract.interaction_mode],
+        )
+    if generated_plan.content_loading_order != "outputs_first":
+        raise InvalidAppFlowPlanError(
+            PLAN_LOADING_ORDER_INVALID,
+            "AppFlowPlan must keep outputs_first content loading order.",
+            contract_items=["content_loading_order=outputs_first"],
+        )
+
+    expected_content_runtime_source = _expected_content_runtime_source(builder_runtime_contract)
+    if generated_plan.content_runtime_source != expected_content_runtime_source:
+        raise InvalidAppFlowPlanError(
+            PLAN_CONTENT_RUNTIME_SOURCE_INVALID,
+            "AppFlowPlan content_runtime_source does not match the expected runtime collection.",
+            contract_items=[expected_content_runtime_source],
+        )
+
+    screen_ids = [screen.screen_id for screen in generated_plan.screens]
+    missing_screens = [
+        screen_id
+        for screen_id in builder_runtime_contract.required_screen_constants
+        if screen_id not in screen_ids
+    ]
+    if missing_screens:
+        raise InvalidAppFlowPlanError(
+            PLAN_SCREENS_MISSING,
+            "AppFlowPlan is missing one or more required screens.",
+            contract_items=missing_screens,
+        )
+
+    transition_assignments = [transition.state_assignment for transition in generated_plan.transitions]
+    missing_transitions = [
+        assignment
+        for assignment in builder_runtime_contract.required_transition_assignments
+        if assignment not in transition_assignments
+    ]
+    if missing_transitions:
+        raise InvalidAppFlowPlanError(
+            PLAN_TRANSITIONS_MISSING,
+            "AppFlowPlan is missing one or more required current_screen transitions.",
+            contract_items=missing_transitions,
+        )
+
+    missing_functions = [
+        function_name
+        for function_name in builder_runtime_contract.required_functions
+        if function_name not in generated_plan.required_functions
+    ]
+    if missing_functions:
+        raise InvalidAppFlowPlanError(
+            PLAN_FUNCTIONS_MISSING,
+            "AppFlowPlan is missing one or more required runtime functions.",
+            contract_items=missing_functions,
+        )
+
+    missing_runtime_literals = [
+        literal
+        for literal in builder_runtime_contract.required_runtime_literals
+        if literal not in generated_plan.required_runtime_literals
+    ]
+    if missing_runtime_literals:
+        raise InvalidAppFlowPlanError(
+            PLAN_RUNTIME_LITERAL_MISSING,
+            "AppFlowPlan is missing one or more required runtime literals.",
+            contract_items=missing_runtime_literals,
+        )
+
+    if builder_runtime_contract.forbidden_runtime_literals:
+        missing_forbidden_literals = [
+            literal
+            for literal in builder_runtime_contract.forbidden_runtime_literals
+            if literal not in generated_plan.forbidden_runtime_literals
+        ]
+        if missing_forbidden_literals:
+            raise InvalidAppFlowPlanError(
+                PLAN_RUNTIME_LITERAL_MISSING,
+                "AppFlowPlan must explicitly forbid legacy runtime literals for this service family.",
+                contract_items=missing_forbidden_literals,
+            )
+
+    if builder_runtime_contract.interaction_mode == "coaching":
+        if (
+            generated_plan.error_path is None
+            or generated_plan.error_path.target_screen != "SCREEN_ERROR"
+            or generated_plan.error_path.state_assignment
+            != "st.session_state.current_screen = SCREEN_ERROR"
+        ):
+            raise InvalidAppFlowPlanError(
+                PLAN_ERROR_PATH_MISSING,
+                "Coaching AppFlowPlan must define an explicit SCREEN_ERROR path.",
+                contract_items=["st.session_state.current_screen = SCREEN_ERROR"],
+            )
+        if (
+            generated_plan.result_path is None
+            or generated_plan.result_path.target_screen != "SCREEN_RESULT"
+        ):
+            raise InvalidAppFlowPlanError(
+                PLAN_RESULT_PATH_MISSING,
+                "Coaching AppFlowPlan must define an explicit SCREEN_RESULT path.",
+                contract_items=["SCREEN_RESULT"],
+            )
+    elif builder_runtime_contract.requires_session_result:
+        if (
+            generated_plan.result_path is None
+            or generated_plan.result_path.target_screen != "SCREEN_SESSION_RESULT"
+        ):
+            raise InvalidAppFlowPlanError(
+                PLAN_RESULT_PATH_MISSING,
+                "Quiz AppFlowPlan must define an explicit SCREEN_SESSION_RESULT path.",
+                contract_items=["SCREEN_SESSION_RESULT"],
+            )
+
+    return generated_plan
 
 
 def _validate_generated_app_source(
@@ -754,6 +1391,18 @@ def _validate_generated_app_source(
             INVALID_STREAMLIT_API,
             "app_source must use st.rerun() instead of st.experimental_rerun().",
             contract_items=["st.rerun()"],
+        )
+    if "st.experimental_get_query_params" in app_source:
+        raise InvalidAppSourceError(
+            INVALID_STREAMLIT_API,
+            "app_source must use st.query_params instead of st.experimental_get_query_params().",
+            contract_items=["st.query_params"],
+        )
+    if "st.experimental_set_query_params" in app_source:
+        raise InvalidAppSourceError(
+            INVALID_STREAMLIT_API,
+            "app_source must use st.query_params instead of st.experimental_set_query_params().",
+            contract_items=["st.query_params"],
         )
     try:
         compile(app_source, "app.py", "exec")
@@ -1024,6 +1673,7 @@ def _build_generation_inputs_summary(
 ) -> list[str]:
     spec = input_model.implementation_spec
     summary = [
+        "generation_stage=plan_then_code",
         f"target_framework={spec.target_framework}",
         f"service_purpose={'present' if spec.service_purpose else 'missing'}",
         f"target_user_count={len(spec.target_users)}",
@@ -1037,10 +1687,37 @@ def _build_generation_inputs_summary(
         "requirement_mapping_output",
         "content_interaction_output",
         "builder_runtime_contract",
+        "app_flow_plan",
     ]
     if _is_planning_package_dir(Path(spec.source_path)):
         summary.extend(["interface_spec", "state_machine", "data_schema", "prompt_spec"])
     return summary
+
+
+def _expected_content_runtime_source(builder_runtime_contract: BuilderRuntimeContract) -> str:
+    if any("interaction_units" in literal for literal in builder_runtime_contract.required_runtime_literals):
+        return "interaction_units"
+    return "quests"
+
+
+def _build_plan_summary(
+    app_flow_plan: AppFlowPlanOutput,
+    *,
+    builder_runtime_contract: BuilderRuntimeContract,
+    repair_attempts: int,
+) -> list[str]:
+    return [
+        f"interaction_mode={app_flow_plan.interaction_mode}",
+        f"content_runtime_source={app_flow_plan.content_runtime_source}",
+        f"screen_count={len(app_flow_plan.screens)}",
+        f"transition_count={len(app_flow_plan.transitions)}",
+        f"required_function_count={len(app_flow_plan.required_functions)}",
+        f"plan_repair_attempts={repair_attempts}",
+        (
+            "required_screens="
+            + ",".join(builder_runtime_contract.required_screen_constants)
+        ),
+    ]
 
 
 def _mandatory_content_loading_contract(content_filename: str) -> str:
@@ -1256,6 +1933,13 @@ def _build_repair_guidance(
         )
     if validation_error.code == PYTHON_SYNTAX_INVALID:
         guidance.append("Fix Python syntax first, then preserve all required screen constants and transitions.")
+    if validation_error.code == INVALID_STREAMLIT_API:
+        guidance.extend(
+            [
+                "Use st.rerun() instead of st.experimental_rerun().",
+                "Use st.query_params instead of st.experimental_get_query_params() or st.experimental_set_query_params().",
+            ]
+        )
     return json.dumps(guidance, ensure_ascii=False, indent=2)
 
 
