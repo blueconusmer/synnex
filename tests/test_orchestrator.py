@@ -513,6 +513,7 @@ def test_pipeline_runs_for_question_coaching_chatbot_content_baseline(tmp_path: 
     )
     final_summary = (output_dir / "final_summary.md").read_text(encoding="utf-8")
     qa_report = (output_dir / "qa_report.md").read_text(encoding="utf-8")
+    app_source = app_target_path.read_text(encoding="utf-8")
 
     assert payload["interaction_mode"] == "coaching"
     assert "/api/chat" in payload["interaction_mode_reason"]
@@ -526,6 +527,9 @@ def test_pipeline_runs_for_question_coaching_chatbot_content_baseline(tmp_path: 
     assert orchestration_decision["overall_status"] == "PASS"
     assert orchestration_decision["retry_required"] is False
     assert app_target_path.exists()
+    assert 'get("interaction_units"' in app_source
+    assert 'get("quests"' not in app_source
+    assert "api_chat_submit" in app_source
     assert "interaction_mode=coaching" in final_summary
     assert "fallback_used: False" in final_summary
     assert "interaction_mode 확인: coaching" in qa_report

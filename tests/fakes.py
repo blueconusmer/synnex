@@ -374,7 +374,9 @@ class FakeLLMClient:
                     }
                 )
             default_source = (
-                _build_quest_v2_llm_generated_streamlit_source(content_filename)
+                _build_coaching_llm_generated_streamlit_source(content_filename)
+                if _prompt_requires_coaching_builder_contract(prompt)
+                else _build_quest_v2_llm_generated_streamlit_source(content_filename)
                 if _prompt_requires_v2_builder_contract(prompt)
                 else _build_llm_generated_streamlit_source(content_filename)
             )
@@ -1326,6 +1328,179 @@ main()
 '''
 
 
+def _build_coaching_llm_generated_streamlit_source(content_filename: str) -> str:
+    return f'''from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import streamlit as st
+
+# LLM_GENERATED_APP_MARKER
+CONTENT_FILENAME = "{content_filename}"
+APP_DIR = Path(__file__).resolve().parent
+OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
+FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
+CONTENT_CANDIDATE_PATHS = [OUTPUT_PATH, FALLBACK_OUTPUT_PATH]
+SCREEN_START = "S0"
+SCREEN_INPUT = "S1"
+SCREEN_FOLLOW_UP = "S2"
+SCREEN_RESULT = "S3"
+SCREEN_ERROR = "S4"
+
+
+def resolve_content_path() -> Path | None:
+    for candidate in CONTENT_CANDIDATE_PATHS:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def load_contents() -> dict[str, Any]:
+    content_path = resolve_content_path()
+    if content_path is None:
+        return {{}}
+    return json.loads(content_path.read_text(encoding="utf-8"))
+
+
+def ensure_state() -> None:
+    st.session_state.setdefault("current_screen", SCREEN_START)
+    st.session_state.setdefault("interaction_units", [])
+    st.session_state.setdefault("turn_count", 0)
+    st.session_state.setdefault("current_feedback", "")
+    st.session_state.setdefault("last_input", "")
+    st.session_state.setdefault("improved_question", "")
+
+
+def detect_missing_dimension(user_input: str) -> str:
+    lowered = user_input.lower()
+    if len(lowered.strip()) < 10:
+        return "need_specificity"
+    if not any(marker in lowered for marker in ["수학", "과학", "사회", "발표", "숙제", "수행평가"]):
+        return "need_context"
+    if not any(marker in lowered for marker in ["이유", "방법", "설명", "예시", "도와"]):
+        return "need_purpose"
+    return "completed"
+
+
+def build_follow_up_question(mode: str) -> str:
+    prompts = {{
+        "need_specificity": "무엇이 궁금한지 조금 더 구체적으로 적어볼래요?",
+        "need_context": "어떤 과목이나 상황에서 필요한 질문인지 알려줄래요?",
+        "need_purpose": "이 질문으로 무엇을 알고 싶은지 말해줄래요?",
+    }}
+    return prompts.get(mode, "한 번 더 자세히 적어볼래요?")
+
+
+def build_improved_question(user_input: str, mode: str) -> str:
+    suffix = {{
+        "need_specificity": "핵심 개념과 범위를 포함해 설명해줘.",
+        "need_context": "과목과 상황을 반영해서 설명해줘.",
+        "need_purpose": "내가 왜 이 내용을 묻는지 고려해서 설명해줘.",
+        "completed": "내 상황에 맞는 답을 예시와 함께 설명해줘.",
+    }}.get(mode, "조금 더 자세히 설명해줘.")
+    return f"{{user_input.strip()}} {{suffix}}".strip()
+
+
+def api_session_start() -> dict[str, Any]:
+    data = load_contents()
+    st.session_state.interaction_units = data.get("interaction_units", [])
+    st.session_state.turn_count = 0
+    st.session_state.current_feedback = ""
+    st.session_state.last_input = ""
+    st.session_state.improved_question = ""
+    st.session_state.current_screen = SCREEN_INPUT
+    return {{"session_id": "coaching-session", "interaction_units": st.session_state.interaction_units}}
+
+
+def api_chat_submit(user_response: str) -> dict[str, Any]:
+    if not user_response.strip():
+        st.session_state.current_feedback = "질문을 입력해주세요."
+        st.session_state.current_screen = SCREEN_ERROR
+        return {{"mode": "error", "next_action": "ask_more"}}
+
+    st.session_state.last_input = user_response.strip()
+    mode = detect_missing_dimension(st.session_state.last_input)
+    st.session_state.turn_count += 1
+    if st.session_state.turn_count >= 2:
+        mode = "completed"
+
+    st.session_state.improved_question = build_improved_question(st.session_state.last_input, mode)
+    if mode == "completed":
+        st.session_state.current_feedback = "질문이 충분히 구체적이어서 바로 개선 결과를 보여줄게요."
+        st.session_state.current_screen = SCREEN_RESULT
+        return {{"mode": mode, "next_action": "show_result"}}
+
+    st.session_state.current_feedback = build_follow_up_question(mode)
+    st.session_state.current_screen = SCREEN_FOLLOW_UP
+    return {{"mode": mode, "next_action": "ask_more"}}
+
+
+def api_session_result() -> dict[str, Any]:
+    return {{
+        "original_question": st.session_state.last_input,
+        "improved_question": st.session_state.improved_question,
+        "turn_count": st.session_state.turn_count,
+    }}
+
+
+def render_input_screen() -> None:
+    user_text = st.text_area("질문 입력", key="chat_input")
+    if st.button("진단하기", key="submit_input") and user_text.strip():
+        api_chat_submit(user_text)
+        st.rerun()
+
+
+def render_follow_up_screen() -> None:
+    st.write(st.session_state.current_feedback)
+    follow_up = st.text_area("보완한 질문", key="follow_up_input")
+    if st.button("다시 진단하기", key="submit_follow_up") and follow_up.strip():
+        api_chat_submit(follow_up)
+        st.rerun()
+
+
+def render_result_screen() -> None:
+    result = api_session_result()
+    st.write(result.get("improved_question", ""))
+
+
+def render_error_screen() -> None:
+    st.warning(st.session_state.current_feedback)
+    if st.button("입력 화면으로 돌아가기", key="back_to_input"):
+        st.session_state.current_screen = SCREEN_INPUT
+        st.rerun()
+
+
+def main() -> None:
+    st.set_page_config(page_title="LLM Generated MVP", layout="wide")
+    ensure_state()
+    st.title("LLM Generated MVP")
+    data = load_contents()
+    if not data:
+        st.warning("콘텐츠 파일을 찾지 못했습니다.")
+        return
+    if not st.session_state.interaction_units:
+        api_session_start()
+    if st.session_state.current_screen == SCREEN_START:
+        st.session_state.current_screen = SCREEN_INPUT
+        st.rerun()
+    elif st.session_state.current_screen == SCREEN_INPUT:
+        render_input_screen()
+    elif st.session_state.current_screen == SCREEN_FOLLOW_UP:
+        render_follow_up_screen()
+    elif st.session_state.current_screen == SCREEN_RESULT:
+        render_result_screen()
+    elif st.session_state.current_screen == SCREEN_ERROR:
+        render_error_screen()
+    else:
+        st.write("알 수 없는 화면입니다.")
+
+
+main()
+'''
+
+
 def _build_quest_v2_llm_generated_streamlit_source(content_filename: str) -> str:
     return f'''from __future__ import annotations
 
@@ -1593,3 +1768,7 @@ def _prompt_requires_v2_builder_contract(prompt: str) -> bool:
         "multiple_choice → situation_card → question_improvement → situation_card → battle",
     ]
     return any(marker in prompt for marker in markers)
+
+
+def _prompt_requires_coaching_builder_contract(prompt: str) -> bool:
+    return re.search(r'interaction_mode:\s*"?(coaching)"?', prompt, re.IGNORECASE) is not None

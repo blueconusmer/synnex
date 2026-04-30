@@ -1,24 +1,40 @@
 {
-  "overall_status": "PASS",
-  "issue_type": "NONE",
-  "observed_stage": "none",
-  "target_agent": "NONE",
+  "overall_status": "NEEDS_HUMAN_REVIEW",
+  "issue_type": "APP_GENERATION_FEEDBACK",
+  "observed_stage": "prototype_builder",
+  "target_agent": "HUMAN_REVIEW",
   "candidate_agents": [
-    "NONE"
+    "REQUIREMENT_MAPPING",
+    "CONTENT_INTERACTION"
   ],
-  "reason": "No upstream interpretation issue required a retry.",
-  "recommended_action": "Proceed with the current outputs.",
+  "reason": "Retry budget was exhausted before the issue was resolved.",
+  "recommended_action": "Escalate to human review.",
   "retry_required": false,
   "retry_instruction": {
-    "summary": "",
-    "must_fix": [],
-    "evidence": [],
-    "preserve_constraints": []
+    "summary": "Clarify state transition logic and session state management requirements",
+    "must_fix": [
+      "Explicitly define all 6 normal state transition paths in the state machine specification",
+      "Add explicit requirement for error state transition (completed → error)",
+      "Specify exact session state variable name (st.session_state.current_screen) and its valid values",
+      "Clarify that state transitions must be implemented as direct assignments to st.session_state.current_screen"
+    ],
+    "evidence": [
+      "Prototype Builder feedback indicates missing flow/state markers",
+      "Fallback template used because LLM output lacked required state transition assignments",
+      "app.py implementation shows custom screen constants (SCREEN_START, SCREEN_INPUT, etc.) that don't match the required state names (awaiting_input, diagnosing, etc.)",
+      "State transition logic in app.py doesn't implement the 6 required normal paths and 1 error path"
+    ],
+    "preserve_constraints": [
+      "Maintain the 4 core states: need_specificity, need_context, need_purpose, completed",
+      "Preserve the 6 normal state transition paths: awaiting_input → diagnosing → (need_specificity/need_context/need_purpose) → completed",
+      "Keep the error transition path: completed → error on validation failure",
+      "Maintain Streamlit framework requirements for session state management"
+    ]
   },
-  "llm_judge_used": false,
-  "llm_judge_status": "NOT_USED",
-  "retry_count": 0,
+  "llm_judge_used": true,
+  "llm_judge_status": "SUCCESS",
+  "retry_count": 3,
   "max_retry_count": 3,
   "should_stop": true,
-  "stop_reason": "No retry required."
+  "stop_reason": "Retry budget was exhausted before the issue was resolved."
 }

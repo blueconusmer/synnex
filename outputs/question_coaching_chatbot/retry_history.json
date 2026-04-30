@@ -1,1 +1,46 @@
-[]
+[
+  {
+    "cycle_index": 1,
+    "issue_type": "APP_GENERATION_FEEDBACK",
+    "target_agent": "REQUIREMENT_MAPPING",
+    "llm_judge_used": false,
+    "instruction_summary": "REQUIREMENT_MAPPING 재실행 전, upstream contract를 더 명확히 보강해야 한다.",
+    "result_status": "RETRY_RECOMMENDED",
+    "notes": [
+      "implementation_targets를 실제 구현 작업 단위로 명확히 쓰라.",
+      "app_constraints에 required screen/state/result/feedback 흐름 단서를 더 명확히 적어라.",
+      "file_plan과 test_strategy가 downstream execution path를 충분히 설명하게 하라.",
+      "app_constraints에 state marker와 required result screen 조건을 명시하라.",
+      "The Prototype Builder used a fallback template due to missing state transition markers in the generated app.py. The Requirement Mapping Agent is responsible for defining the state transition logic and app constraints, which were not properly reflected in the prototype. Retrying this agent will ensure the state machine requirements are correctly specified for the Prototype Builder to implement."
+    ]
+  },
+  {
+    "cycle_index": 2,
+    "issue_type": "APP_GENERATION_FEEDBACK",
+    "target_agent": "REQUIREMENT_MAPPING",
+    "llm_judge_used": true,
+    "instruction_summary": "Clarify and strengthen state transition requirements for the Prototype Builder",
+    "result_status": "RETRY_RECOMMENDED",
+    "notes": [
+      "Explicitly define all 6 normal state transition paths (awaiting_input → diagnosing → need_specificity/need_context/need_purpose → completed) in app_constraints",
+      "Add explicit requirement for error state transition (completed → error) handling in app_constraints",
+      "Specify exact session_state variable names and values for each state (e.g., st.session_state.current_screen = 'need_specificity')",
+      "Include mandatory code template for state transition logic in implementation_targets",
+      "The Prototype Builder used a fallback template due to missing flow/state markers, which are directly tied to the content interaction design. The Content & Interaction Agent is responsible for defining the coaching flow, feedback templates, and state transition logic that the Prototype Builder failed to implement correctly. Retrying this agent will ensure the interaction content properly reflects the required state machine and coaching workflow."
+    ]
+  },
+  {
+    "cycle_index": 3,
+    "issue_type": "APP_GENERATION_FEEDBACK",
+    "target_agent": "CONTENT_INTERACTION",
+    "llm_judge_used": true,
+    "instruction_summary": "Regenerate coaching interaction content with explicit state markers and feedback templates",
+    "result_status": "RETRY_RECOMMENDED",
+    "notes": [
+      "Ensure coaching feedback templates include state transition assignments (e.g., st.session_state.current_screen = SCREEN_RESULT)",
+      "Verify all interaction units contain proper state markers for need_specificity/need_context/need_purpose/completed states",
+      "Confirm feedback messages align with growth-oriented language requirements while explicitly indicating state transitions",
+      "The Prototype Builder used a fallback template due to missing state transition markers in the generated app.py. The Requirement Mapping Agent is responsible for defining the state machine logic and session state management rules that the Prototype Builder must implement. Revisiting the requirement mapping will ensure the state transition logic is correctly specified before retrying code generation."
+    ]
+  }
+]

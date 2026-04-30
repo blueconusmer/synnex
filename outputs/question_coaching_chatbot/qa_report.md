@@ -1,6 +1,6 @@
 # QA Report
 
-- Alignment status: PASS
+- Alignment status: WARN
 
 ## Input Intake
 - Status: NEEDS_PLANNING_REVIEW
@@ -14,9 +14,9 @@
 
 ## Checklist
 - interaction_mode 확인: coaching
-- interaction_mode 추론 이유: coaching markers detected: 질문 입력, 되묻기, coaching, /api/chat
-- interaction_units 수 확인: 6
-- interaction_type 분포 확인: coaching_feedback 3 + feedback 2 + free_text_input 1
+- interaction_mode 추론 이유: coaching markers detected with non-quiz-like content type marker profile: coaching=질문 입력, 되묻기, coaching, /api/chat; quiz=정답
+- interaction_units 수 확인: 9
+- interaction_type 분포 확인: coaching_feedback 3 + feedback 5 + free_text_input 1
 - QuizItem 하위 호환 사용 여부: NO
 - 총 문제 수 확인: N/A (interaction-unit primary mode)
 - 세션 구성 확인: interaction_units 순서와 next_step 기준
@@ -27,19 +27,23 @@
 - interaction_units 구조 validator 통과 여부: PASS
 - app.py Streamlit smoke test 여부: PASS
 - package pytest.py 통과 여부: NOT RUN
-- Prototype Builder LLM 생성 여부: llm_generated
-- fallback template 사용 여부: NO
+- Prototype Builder LLM 생성 여부: fallback_template
+- fallback template 사용 여부: YES
 - app.py가 서비스별 콘텐츠 파일을 읽도록 생성되었는지 확인
 - 실행 로그와 변경 로그가 생성되었는지 확인
 
 ## Issues
-- No blocking QA issues were reported.
+- LLM-generated app.py did not complete successfully; fallback template was used.
 
 ## Feedback Loop Summary
-- overall_status: PASS
-- issue_type: NONE
-- target_agent: NONE
-- retry_count: 0
-- llm_judge_used: False
+- overall_status: NEEDS_HUMAN_REVIEW
+- issue_type: APP_GENERATION_FEEDBACK
+- target_agent: HUMAN_REVIEW
+- retry_count: 3
+- llm_judge_used: True
 - should_stop: True
-- stop_reason: No retry required.
+- stop_reason: Retry budget was exhausted before the issue was resolved.
+- retry_history:
+- cycle 1: REQUIREMENT_MAPPING -> RETRY_RECOMMENDED
+- cycle 2: REQUIREMENT_MAPPING -> RETRY_RECOMMENDED
+- cycle 3: CONTENT_INTERACTION -> RETRY_RECOMMENDED

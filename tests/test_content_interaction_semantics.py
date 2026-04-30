@@ -385,7 +385,7 @@ def test_non_quiz_content_types_prefer_coaching_over_incidental_quiz_words() -> 
             "service_summary": "질문 코칭 챗봇은 정답을 바로 주지 않고 되묻기로 질문 개선을 돕는다.",
             "normalized_requirements": ["정답 직접 제공 금지", "질문 입력", "되묻기", "/api/chat"],
             "delivery_expectations": ["interaction_units 생성"],
-            "acceptance_focus": ["non-quiz content types면 coaching으로 해석되어야 한다."],
+            "acceptance_focus": ["quiz-like content type marker가 없으면 coaching으로 해석되어야 한다."],
         }
     )
     requirement_mapping_output = RequirementMappingOutput.model_validate(
@@ -463,7 +463,7 @@ def test_non_quiz_content_types_prefer_coaching_over_incidental_quiz_words() -> 
     )
 
     assert result.interaction_mode == "coaching"
-    assert "non-quiz content types" in result.interaction_mode_reason
+    assert "content type marker profile" in result.interaction_mode_reason
     assert result.interaction_validation is not None
     assert result.interaction_validation.structure_valid is True
 

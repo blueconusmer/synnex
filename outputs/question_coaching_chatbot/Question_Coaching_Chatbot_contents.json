@@ -3,27 +3,27 @@
     "english_name": "Content & Interaction Agent",
     "korean_name": "교육 콘텐츠·상호작용 생성 Agent"
   },
-  "service_summary": "Question Coaching Chatbot은 학생들이 AI에 질문할 때 주제/상황/원하는 답의 형태를 스스로 구조화하는 능력을 훈련시키는 서비스입니다. AI 사용법 교육이 아닌 질문 다듬기 경험을 제공하며, 순차적 보완 방식으로 한 번에 한 가지 요소(구체성/맥락성/목적성)씩 피드백을 제공합니다.",
+  "service_summary": "Question Coaching Chatbot은 학생들이 주제/상황/목적성을 갖춘 질문을 작성하도록 단계적으로 유도하는 코칭 서비스입니다. 정답 제공 대신 질문 구조화 훈련을 제공하며, Streamlit 프레임워크로 구현됩니다.",
   "interaction_mode": "coaching",
-  "interaction_mode_reason": "coaching markers detected: 질문 입력, 되묻기, coaching, /api/chat",
+  "interaction_mode_reason": "coaching markers detected with non-quiz-like content type marker profile: coaching=질문 입력, 되묻기, coaching, /api/chat; quiz=정답",
   "quiz_types": [],
   "items": [],
   "answer_key": {},
   "explanations": {},
   "learning_points": {},
   "interaction_notes": [
-    "학습자는 순차적으로 구체성 → 맥락성 → 목적성 피드백을 받으며 질문을 개선합니다.",
-    "각 단계에서 시스템은 평가적 표현을 배제하고 성장적 표현을 사용합니다.",
-    "피드백은 한 번에 하나의 요소만 지적하며, 기준 충족 시 즉시 다음 단계로 이동합니다.",
-    "최종 단계에서 학습자는 완성된 질문을 AI에 보낼 수 있습니다."
+    "1. 학습자는 초기 질문을 입력하고, 시스템은 순차적으로 구체성 → 맥락성 → 목적성을 검증합니다.",
+    "2. 각 단계에서 하나의 요소만 지적하며, 학습자는 해당 요소를 보완합니다.",
+    "3. 모든 요소가 충족되면 완료 상태로 전이됩니다.",
+    "4. 오류 발생 시 error 상태로 전이됩니다."
   ],
   "interaction_units": [
     {
-      "unit_id": "awaiting_input",
+      "unit_id": "start",
       "interaction_type": "free_text_input",
-      "title": "질문 입력",
-      "learner_action": "학습자가 질문을 입력합니다.",
-      "system_response": "질문을 입력해 주세요. (예: '수학 문제를 푸는 방법을 알고 싶어요')",
+      "title": "질문 입력 화면",
+      "learner_action": "학습자가 질문을 입력합니다",
+      "system_response": "질문을 입력해 주세요. 예) '삼각함수 미분 공식 알려주세요'",
       "input_format": "free_text",
       "feedback_rule": "",
       "learning_dimension": "",
@@ -35,113 +35,155 @@
     {
       "unit_id": "diagnosing",
       "interaction_type": "feedback",
-      "title": "진단 중",
-      "learner_action": "시스템이 질문을 분석합니다.",
-      "system_response": "질문을 분석하고 있습니다. 잠시만 기다려 주세요.",
+      "title": "질문 진단 화면",
+      "learner_action": "시스템이 질문을 분석합니다",
+      "system_response": "질문을 분석 중입니다. 잠시만 기다려 주세요.",
       "input_format": "",
-      "feedback_rule": "",
+      "feedback_rule": "질문 텍스트 분석 후 상태 전이 결정",
       "learning_dimension": "",
       "next_step": "need_specificity",
       "metadata": {
         "state": "diagnosing",
-        "feedback_type": "processing"
+        "transition_rule": "awaiting_input → diagnosing → (need_specificity/need_context/need_purpose)"
       }
     },
     {
       "unit_id": "need_specificity",
       "interaction_type": "coaching_feedback",
-      "title": "구체성 피드백",
-      "learner_action": "학습자가 구체성 피드백을 확인합니다.",
-      "system_response": "질문이 조금 넓은 것 같아요. 어떤 구체적인 부분을 알고 싶으신가요? 예를 들어 '이차방정식의 근의 공식을 어떻게 사용하는지 알고 싶어요'처럼 자세히 설명해 주세요.",
+      "title": "구체성 보완 화면",
+      "learner_action": "학습자가 구체성을 추가합니다",
+      "system_response": "질문이 조금 더 구체적일 필요가 있어요! 예를 들어 '삼각함수 미분 공식 중 사인 함수의 미분 과정을 단계별로 설명해 주세요'라고 작성해 볼까요?",
       "input_format": "",
       "feedback_rule": "구체성 부족 시 성장적 표현 사용",
       "learning_dimension": "구체성",
-      "next_step": "need_context",
+      "next_step": "diagnosing_after_specificity",
       "metadata": {
         "state": "need_specificity",
-        "feedback_type": "specificity"
+        "transition_code": "st.session_state.current_screen = 'need_specificity'"
+      }
+    },
+    {
+      "unit_id": "diagnosing_after_specificity",
+      "interaction_type": "feedback",
+      "title": "재진단 화면",
+      "learner_action": "시스템이 수정된 질문을 분석합니다",
+      "system_response": "수정된 질문을 분석 중입니다.",
+      "input_format": "",
+      "feedback_rule": "맥락성 검증",
+      "learning_dimension": "",
+      "next_step": "need_context",
+      "metadata": {
+        "state": "diagnosing",
+        "transition_rule": "need_specificity → need_context"
       }
     },
     {
       "unit_id": "need_context",
       "interaction_type": "coaching_feedback",
-      "title": "맥락성 피드백",
-      "learner_action": "학습자가 맥락성 피드백을 확인합니다.",
-      "system_response": "좋아요! 이제 질문의 배경을 조금 더 알려주세요. 예를 들어 '학교 시험에서 이차방정식 문제가 나왔는데 어떻게 접근해야 할지 모르겠어요'처럼 상황을 설명해 주시면 더 정확한 도움을 드릴 수 있어요.",
+      "title": "맥락성 보완 화면",
+      "learner_action": "학습자가 맥락 정보를 추가합니다",
+      "system_response": "질문의 배경을 조금 더 알려주면 도움이 될 것 같아요! 예를 들어 '고등학교 2학년 수학 수업에서 배운 삼각함수 미분 공식 중 사인 함수의 미분 과정을 단계별로 설명해 주세요'라고 작성해 볼까요?",
       "input_format": "",
       "feedback_rule": "맥락성 부족 시 성장적 표현 사용",
       "learning_dimension": "맥락성",
-      "next_step": "need_purpose",
+      "next_step": "diagnosing_after_context",
       "metadata": {
         "state": "need_context",
-        "feedback_type": "context"
+        "transition_code": "st.session_state.current_screen = 'need_context'"
+      }
+    },
+    {
+      "unit_id": "diagnosing_after_context",
+      "interaction_type": "feedback",
+      "title": "재진단 화면",
+      "learner_action": "시스템이 수정된 질문을 분석합니다",
+      "system_response": "수정된 질문을 분석 중입니다.",
+      "input_format": "",
+      "feedback_rule": "목적성 검증",
+      "learning_dimension": "",
+      "next_step": "need_purpose",
+      "metadata": {
+        "state": "diagnosing",
+        "transition_rule": "need_context → need_purpose"
       }
     },
     {
       "unit_id": "need_purpose",
       "interaction_type": "coaching_feedback",
-      "title": "목적성 피드백",
-      "learner_action": "학습자가 목적성 피드백을 확인합니다.",
-      "system_response": "거의 다 됐어요! 마지막으로 이 질문을 통해 얻고 싶은 것이 무엇인지 알려주세요. 예를 들어 '이차방정식 문제 풀이 단계를 시각적으로 이해하고 싶어요'처럼 원하는 답변 형태를 말씀해 주시면 더욱 완벽한 질문을 만들 수 있어요.",
+      "title": "목적성 보완 화면",
+      "learner_action": "학습자가 질문 목적을 명시합니다",
+      "system_response": "이 질문을 하는 목적을 조금 더 명확히 해 볼까요? 예를 들어 '고등학교 2학년 수학 수업에서 배운 삼각함수 미분 공식 중 사인 함수의 미분 과정을 단계별로 설명해 주세요. 시험 대비로 개념 이해를 확실히 하고 싶어요'라고 작성해 볼까요?",
       "input_format": "",
       "feedback_rule": "목적성 부족 시 성장적 표현 사용",
       "learning_dimension": "목적성",
-      "next_step": "completed",
+      "next_step": "diagnosing_after_purpose",
       "metadata": {
         "state": "need_purpose",
-        "feedback_type": "purpose"
+        "transition_code": "st.session_state.current_screen = 'need_purpose'"
+      }
+    },
+    {
+      "unit_id": "diagnosing_after_purpose",
+      "interaction_type": "feedback",
+      "title": "최종 진단 화면",
+      "learner_action": "시스템이 최종 질문을 분석합니다",
+      "system_response": "최종 질문을 확인 중입니다.",
+      "input_format": "",
+      "feedback_rule": "모든 요소 검증",
+      "learning_dimension": "",
+      "next_step": "completed",
+      "metadata": {
+        "state": "diagnosing",
+        "transition_rule": "need_purpose → completed"
       }
     },
     {
       "unit_id": "completed",
       "interaction_type": "feedback",
-      "title": "완료",
-      "learner_action": "학습자가 완성된 질문을 확인합니다.",
-      "system_response": "훌륭해요! 이제 질문을 AI에 보내보세요. 더욱 명확하고 효과적인 답변을 받을 수 있을 거예요.",
+      "title": "완료 화면",
+      "learner_action": "학습자가 최종 질문을 확인합니다",
+      "system_response": "축하합니다! 이제 질문이 완벽해졌어요. 최종 질문: {수정된 질문 텍스트} 이 질문으로 AI에게 도움을 요청해 보세요.",
       "input_format": "",
-      "feedback_rule": "",
+      "feedback_rule": "성장적 표현 사용",
       "learning_dimension": "",
       "next_step": "END",
       "metadata": {
         "state": "completed",
-        "feedback_type": "completion"
+        "transition_code": "st.session_state.current_screen = 'completed'"
       }
     }
   ],
   "flow_notes": [
-    "학습자는 순차적으로 구체성 → 맥락성 → 목적성 피드백을 받으며 질문을 개선합니다.",
-    "각 단계에서 시스템은 평가적 표현을 배제하고 성장적 표현을 사용합니다.",
-    "피드백은 한 번에 하나의 요소만 지적하며, 기준 충족 시 즉시 다음 단계로 이동합니다.",
-    "최종 단계에서 학습자는 완성된 질문을 AI에 보낼 수 있습니다."
+    "1. 학습자는 초기 질문을 입력하고, 시스템은 순차적으로 구체성 → 맥락성 → 목적성을 검증합니다.",
+    "2. 각 단계에서 하나의 요소만 지적하며, 학습자는 해당 요소를 보완합니다.",
+    "3. 모든 요소가 충족되면 완료 상태로 전이됩니다.",
+    "4. 오류 발생 시 error 상태로 전이됩니다."
   ],
   "evaluation_rules": {
-    "feedback_sequence": [
-      "need_specificity",
-      "need_context",
-      "need_purpose"
-    ],
-    "feedback_type_per_step": {
-      "need_specificity": "구체성",
-      "need_context": "맥락성",
-      "need_purpose": "목적성"
+    "state_transition": {
+      "valid_paths": [
+        "awaiting_input → diagnosing → need_specificity → need_context → need_purpose → completed",
+        "awaiting_input → diagnosing → need_specificity → need_context → completed",
+        "awaiting_input → diagnosing → need_specificity → need_purpose → completed",
+        "awaiting_input → diagnosing → need_context → need_purpose → completed",
+        "awaiting_input → diagnosing → need_specificity → completed",
+        "awaiting_input → diagnosing → need_context → completed",
+        "awaiting_input → diagnosing → need_purpose → completed",
+        "completed → error"
+      ],
+      "error_condition": "유효하지 않은 상태 전이 시도 시 error 상태로 전이"
     },
-    "growth_expressions": [
-      "좋아요!",
-      "훌륭해요!",
-      "거의 다 됐어요!",
-      "조금 더 자세히 설명해 주세요"
-    ],
-    "evaluation_criteria": {
-      "specificity": "질문이 구체적인 주제/대상을 포함하는지",
-      "context": "질문이 발생 배경/상황을 설명하는지",
-      "purpose": "질문이 원하는 답변 형태를 명시하는지"
+    "feedback_language": {
+      "growth_patterns": [
+        "{요소}를 조금 더 {보완 방향}해 볼까요?",
+        "{요소}를 명확히 하면 더 좋은 질문이 될 것 같아요!",
+        "{요소}를 추가해 보는 건 어때요?"
+      ]
     },
-    "transition_rules": {
-      "awaiting_input": "diagnosing",
-      "diagnosing": "need_specificity",
-      "need_specificity": "need_context",
-      "need_context": "need_purpose",
-      "need_purpose": "completed"
+    "validation_rules": {
+      "specificity": "질문이 특정 주제나 개념을 명확히 언급하는가?",
+      "context": "질문이 발생 배경이나 상황을 포함하는가?",
+      "purpose": "질문이 학습 목적이나 의도를 명시하는가?"
     },
     "mode": "coaching",
     "diagnosis_criteria": [
@@ -158,11 +200,11 @@
   "semantic_validation": null,
   "interaction_validation": {
     "interaction_mode": "coaching",
-    "mode_inference_reason": "coaching markers detected: 질문 입력, 되묻기, coaching, /api/chat",
-    "unit_count": 6,
+    "mode_inference_reason": "coaching markers detected with non-quiz-like content type marker profile: coaching=질문 입력, 되묻기, coaching, /api/chat; quiz=정답",
+    "unit_count": 9,
     "unit_type_counts": {
       "free_text_input": 1,
-      "feedback": 2,
+      "feedback": 5,
       "coaching_feedback": 3
     },
     "structure_valid": true,
