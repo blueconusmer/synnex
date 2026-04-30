@@ -33,6 +33,7 @@ class FakeLLMClient:
         fail_app_generation: bool = False,
         invalid_app_generation: bool = False,
         patch_source: str | None = None,
+        repair_sources: list[str] | None = None,
         no_patch: bool = False,
         weak_spec_first_pass: bool = False,
         weak_requirement_first_pass: bool = False,
@@ -45,6 +46,7 @@ class FakeLLMClient:
         self.fail_app_generation = fail_app_generation
         self.invalid_app_generation = invalid_app_generation
         self.patch_source = patch_source
+        self.repair_sources = list(repair_sources or [])
         self.no_patch = no_patch
         self.weak_spec_first_pass = weak_spec_first_pass
         self.weak_requirement_first_pass = weak_requirement_first_pass
@@ -380,10 +382,16 @@ class FakeLLMClient:
                 if _prompt_requires_v2_builder_contract(prompt)
                 else _build_llm_generated_streamlit_source(content_filename)
             )
+            is_repair_prompt = "The previous generated app.py failed validation." in prompt
+            repair_source = None
+            if is_repair_prompt and self.repair_sources:
+                repair_source = self.repair_sources.pop(0)
+            elif is_repair_prompt and self.patch_source is not None:
+                repair_source = self.patch_source
             return response_model.model_validate(
                 {
                     "app_path": "app.py",
-                    "app_source": self.app_source or default_source,
+                    "app_source": repair_source or self.app_source or default_source,
                     "generation_notes": ["fake LLM generated deterministic Streamlit app.py"],
                 }
             )

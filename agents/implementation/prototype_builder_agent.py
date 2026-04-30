@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from clients.llm import LLMClient
@@ -39,6 +39,19 @@ INVALID_STREAMLIT_API = "INVALID_STREAMLIT_API"
 PYTHON_SYNTAX_INVALID = "PYTHON_SYNTAX_INVALID"
 MISSING_CONTENT_GUIDANCE = "MISSING_CONTENT_GUIDANCE"
 PLANNING_PACKAGE_RUNTIME_ACCESS = "PLANNING_PACKAGE_RUNTIME_ACCESS"
+MAX_BUILDER_REPAIR_ATTEMPTS = 2
+REPAIR_FRIENDLY_CODES = {
+    CONTRACT_MISSING_MARKER,
+    RESULT_FLOW_MISSING,
+    BATTLE_FLOW_MISSING,
+    COACHING_FLOW_MISSING,
+    INTERACTION_UNITS_RUNTIME_MISSING,
+    LEGACY_QUEST_RUNTIME_ACCESS,
+    ROOT_FIRST_CONTENT_LOADING,
+    RAW_FIELD_ACCESS,
+    INVALID_STREAMLIT_API,
+    MISSING_CONTENT_GUIDANCE,
+}
 
 
 @dataclass(frozen=True)
@@ -107,6 +120,37 @@ class InvalidAppSourceError(ValueError):
         self.contract_items = contract_items or []
 
 
+@dataclass(frozen=True)
+class ValidatedAppSourceResult:
+    app_source: str
+    generation_notes: list[str]
+    reflection_attempts: int = 0
+    repair_attempted: bool = False
+    initial_validation_error_code: str = ""
+    repair_validation_error_code: str = ""
+    repair_history: list[str] = field(default_factory=list)
+
+
+class BuilderRepairFailed(RuntimeError):
+    def __init__(
+        self,
+        final_error: InvalidAppSourceError,
+        *,
+        reflection_attempts: int,
+        repair_attempted: bool,
+        initial_validation_error_code: str,
+        repair_validation_error_code: str,
+        repair_history: list[str],
+    ) -> None:
+        super().__init__(final_error.message)
+        self.final_error = final_error
+        self.reflection_attempts = reflection_attempts
+        self.repair_attempted = repair_attempted
+        self.initial_validation_error_code = initial_validation_error_code
+        self.repair_validation_error_code = repair_validation_error_code
+        self.repair_history = repair_history
+
+
 def run_prototype_builder_agent(
     input_model: PrototypeBuilderInput,
     llm_client: LLMClient,
@@ -156,6 +200,11 @@ def run_prototype_builder_agent(
     fallback_used = False
     fallback_reason = ""
     generation_mode = "llm_generated"
+    reflection_attempts = 0
+    repair_attempted = False
+    initial_validation_error_code = ""
+    repair_validation_error_code = ""
+    repair_history: list[str] = []
 
     runtime_notes = [
         f"app.py는 outputs/{content_filename}을 읽는다.",
@@ -166,25 +215,47 @@ def run_prototype_builder_agent(
     ]
 
     try:
-        app_source, generation_notes = _generate_validated_app_source_with_llm(
+        generation_result = _generate_validated_app_source_with_llm(
             input_model=input_model,
             llm_client=llm_client,
             content_filename=content_filename,
             package_context=package_context,
             builder_runtime_contract=builder_runtime_contract,
         )
-        runtime_notes.extend(generation_notes)
+        app_source = generation_result.app_source
+        runtime_notes.extend(generation_result.generation_notes)
+        reflection_attempts = generation_result.reflection_attempts
+        repair_attempted = generation_result.repair_attempted
+        initial_validation_error_code = generation_result.initial_validation_error_code
+        repair_validation_error_code = generation_result.repair_validation_error_code
+        repair_history = generation_result.repair_history
         runtime_notes.append(
             f"Builder runtime contract satisfied: {builder_runtime_contract.to_summary_string()}."
         )
         runtime_notes.append("app.py는 LLM 생성 결과를 사용했다.")
-    except InvalidAppSourceError as exc:
-        builder_errors.extend([LLM_OUTPUT_INVALID, exc.code, FALLBACK_USED])
+    except BuilderRepairFailed as exc:
+        builder_errors.extend(
+            _dedupe_preserve_order(
+                [
+                    LLM_OUTPUT_INVALID,
+                    exc.initial_validation_error_code,
+                    exc.repair_validation_error_code,
+                    FALLBACK_USED,
+                ]
+            )
+        )
         fallback_used = True
-        fallback_reason = f"{LLM_OUTPUT_INVALID}: {exc.code}: {exc.message}"
+        fallback_reason = (
+            f"{LLM_OUTPUT_INVALID}: {exc.final_error.code}: {exc.final_error.message}"
+        )
         generation_mode = "fallback_template"
         app_source = build_fallback_app_source(input_model)
         runtime_notes.append("LLM app.py 출력이 유효하지 않아 fallback template을 사용했다.")
+        reflection_attempts = exc.reflection_attempts
+        repair_attempted = exc.repair_attempted
+        initial_validation_error_code = exc.initial_validation_error_code
+        repair_validation_error_code = exc.repair_validation_error_code
+        repair_history = exc.repair_history
     except Exception as exc:
         builder_errors.extend([LLM_CALL_FAILED, FALLBACK_USED])
         fallback_used = True
@@ -207,6 +278,8 @@ def run_prototype_builder_agent(
         integration_notes.append(
             "Fallback template 사용은 LLM-generated app.py 성공으로 간주하지 않는다."
         )
+    if repair_history:
+        runtime_notes.extend(repair_history)
 
     return PrototypeBuilderOutput(
         agent=make_label(
@@ -231,7 +304,11 @@ def run_prototype_builder_agent(
         fallback_used=fallback_used,
         fallback_reason=fallback_reason,
         generation_inputs_summary=generation_inputs_summary,
-        reflection_attempts=0,
+        reflection_attempts=reflection_attempts,
+        repair_attempted=repair_attempted,
+        initial_validation_error_code=initial_validation_error_code,
+        repair_validation_error_code=repair_validation_error_code,
+        repair_history=repair_history,
         builder_errors=builder_errors,
     )
 
@@ -305,7 +382,7 @@ def _generate_validated_app_source_with_llm(
     content_filename: str,
     package_context: dict[str, str],
     builder_runtime_contract: BuilderRuntimeContract,
-) -> tuple[str, list[str]]:
+) -> ValidatedAppSourceResult:
     generated_app = _generate_app_source_with_llm(
         input_model=input_model,
         llm_client=llm_client,
@@ -319,9 +396,9 @@ def _generate_validated_app_source_with_llm(
             content_filename=content_filename,
             builder_runtime_contract=builder_runtime_contract,
         )
-        return (
-            validated_source,
-            _dedupe_preserve_order(
+        return ValidatedAppSourceResult(
+            app_source=validated_source,
+            generation_notes=_dedupe_preserve_order(
                 [
                     *generated_app.generation_notes,
                     _build_contract_self_check_note(validated_source, builder_runtime_contract),
@@ -329,37 +406,155 @@ def _generate_validated_app_source_with_llm(
             ),
         )
     except InvalidAppSourceError as first_error:
+        return _repair_invalid_app_source_with_llm(
+            input_model=input_model,
+            llm_client=llm_client,
+            content_filename=content_filename,
+            invalid_source=generated_app.app_source,
+            first_error=first_error,
+            generated_app=generated_app,
+            builder_runtime_contract=builder_runtime_contract,
+        )
+
+
+def _repair_invalid_app_source_with_llm(
+    *,
+    input_model: PrototypeBuilderInput,
+    llm_client: LLMClient,
+    content_filename: str,
+    invalid_source: str,
+    first_error: InvalidAppSourceError,
+    generated_app: AppSourceGenerationOutput,
+    builder_runtime_contract: BuilderRuntimeContract,
+) -> ValidatedAppSourceResult:
+    repair_history = [
+        _format_repair_history_entry(
+            attempt_number=0,
+            error=first_error,
+            status="FAILED",
+            note="Initial generation failed validation.",
+        )
+    ]
+    if not _is_repair_friendly_error(first_error):
+        raise BuilderRepairFailed(
+            first_error,
+            reflection_attempts=0,
+            repair_attempted=False,
+            initial_validation_error_code=first_error.code,
+            repair_validation_error_code="",
+            repair_history=repair_history + ["Repair skipped: failure was not repair-friendly."],
+        )
+
+    previous_error = first_error
+    current_invalid_source = invalid_source
+    repair_attempts = 0
+    generation_notes = list(generated_app.generation_notes)
+
+    for attempt_number in range(1, MAX_BUILDER_REPAIR_ATTEMPTS + 1):
+        repair_attempts = attempt_number
         repair_prompt = _build_app_validation_repair_prompt(
             input_model=input_model,
             content_filename=content_filename,
-            invalid_source=generated_app.app_source,
-            validation_error=first_error,
+            invalid_source=current_invalid_source,
+            validation_error=previous_error,
             builder_runtime_contract=builder_runtime_contract,
+            repair_attempt_number=attempt_number,
+            max_repair_attempts=MAX_BUILDER_REPAIR_ATTEMPTS,
+            repair_history=repair_history,
         )
-        repaired_app = llm_client.generate_json(
-            prompt=repair_prompt,
-            response_model=AppSourceGenerationOutput,
-            system_prompt=(
-                "You fix one generated Streamlit app.py so it satisfies the runtime contract. "
-                "Return JSON only. Do not call external LLM APIs."
-            ),
-        )
-        repaired_source = _validate_generated_app_source(
-            generated_app=repaired_app,
-            content_filename=content_filename,
-            builder_runtime_contract=builder_runtime_contract,
-        )
-        return (
-            repaired_source,
-            _dedupe_preserve_order(
-                [
-                    *generated_app.generation_notes,
-                    f"Initial app_source failed validation once with {first_error.code}.",
-                    *repaired_app.generation_notes,
-                    _build_contract_self_check_note(repaired_source, builder_runtime_contract),
-                ]
-            ),
-        )
+        try:
+            repaired_app = llm_client.generate_json(
+                prompt=repair_prompt,
+                response_model=AppSourceGenerationOutput,
+                system_prompt=(
+                    "You fix one generated Streamlit app.py so it satisfies the runtime contract. "
+                    "Return JSON only. Do not call external LLM APIs."
+                ),
+            )
+        except Exception as exc:
+            repair_history.append(
+                f"Repair attempt {attempt_number} failed before validation: LLM_CALL_FAILED ({exc})."
+            )
+            raise BuilderRepairFailed(
+                InvalidAppSourceError(LLM_CALL_FAILED, f"Repair attempt {attempt_number} LLM call failed: {exc}."),
+                reflection_attempts=repair_attempts,
+                repair_attempted=True,
+                initial_validation_error_code=first_error.code,
+                repair_validation_error_code=LLM_CALL_FAILED,
+                repair_history=repair_history,
+            ) from exc
+
+        try:
+            repaired_source = _validate_generated_app_source(
+                generated_app=repaired_app,
+                content_filename=content_filename,
+                builder_runtime_contract=builder_runtime_contract,
+            )
+            repair_history.append(
+                f"Repair attempt {attempt_number} succeeded after {previous_error.code}."
+            )
+            return ValidatedAppSourceResult(
+                app_source=repaired_source,
+                generation_notes=_dedupe_preserve_order(
+                    [
+                        *generation_notes,
+                        f"Initial app_source failed validation once with {first_error.code}.",
+                        *repaired_app.generation_notes,
+                        _build_contract_self_check_note(repaired_source, builder_runtime_contract),
+                    ]
+                ),
+                reflection_attempts=repair_attempts,
+                repair_attempted=True,
+                initial_validation_error_code=first_error.code,
+                repair_validation_error_code="",
+                repair_history=repair_history,
+            )
+        except InvalidAppSourceError as repair_error:
+            repair_history.append(
+                _format_repair_history_entry(
+                    attempt_number=attempt_number,
+                    error=repair_error,
+                    status="FAILED",
+                    note=f"Repair attempt {attempt_number} failed validation.",
+                )
+            )
+            stop_reason = _repair_stop_reason(previous_error, repair_error)
+            if stop_reason:
+                repair_history.append(
+                    f"Repair stopped after attempt {attempt_number}: {stop_reason}"
+                )
+                raise BuilderRepairFailed(
+                    repair_error,
+                    reflection_attempts=repair_attempts,
+                    repair_attempted=True,
+                    initial_validation_error_code=first_error.code,
+                    repair_validation_error_code=repair_error.code,
+                    repair_history=repair_history,
+                )
+            if not _is_repair_friendly_error(repair_error):
+                repair_history.append(
+                    f"Repair stopped after attempt {attempt_number}: failure was not repair-friendly."
+                )
+                raise BuilderRepairFailed(
+                    repair_error,
+                    reflection_attempts=repair_attempts,
+                    repair_attempted=True,
+                    initial_validation_error_code=first_error.code,
+                    repair_validation_error_code=repair_error.code,
+                    repair_history=repair_history,
+                )
+            previous_error = repair_error
+            current_invalid_source = repaired_app.app_source
+
+    raise BuilderRepairFailed(
+        previous_error,
+        reflection_attempts=repair_attempts,
+        repair_attempted=repair_attempts > 0,
+        initial_validation_error_code=first_error.code,
+        repair_validation_error_code=previous_error.code,
+        repair_history=repair_history
+        + [f"Repair budget exhausted after {repair_attempts} attempts."],
+    )
 
 
 def _build_app_generation_prompt(
@@ -437,19 +632,29 @@ def _build_app_validation_repair_prompt(
     invalid_source: str,
     validation_error: InvalidAppSourceError,
     builder_runtime_contract: BuilderRuntimeContract,
+    repair_attempt_number: int,
+    max_repair_attempts: int,
+    repair_history: list[str],
 ) -> str:
     spec = input_model.implementation_spec
     failed_items = validation_error.contract_items or [validation_error.message]
     return (
         "The previous generated app.py failed validation.\n"
+        f"Repair attempt: {repair_attempt_number} / {max_repair_attempts}\n"
         f"Validation error code: {validation_error.code}\n"
         f"Validation error: {validation_error.message}\n\n"
-        "Preserve the valid parts of the existing source and add or fix the missing runtime contract items.\n"
-        "Do not drop valid helper functions, content loading logic, or current_screen transitions.\n\n"
+        "Preserve the valid parts of the existing source and add or fix only the missing runtime contract items.\n"
+        "Modify the smallest possible set of lines.\n"
+        "Do not rewrite unrelated functions.\n"
+        "Do not drop valid helper functions, content loading logic, or current_screen transitions.\n"
+        "Do not rename screen constants, helper functions, or session state keys.\n"
+        "If a missing contract item is shown as a literal assignment or literal marker, insert that exact literal.\n\n"
         "Builder runtime contract:\n"
         f"{builder_runtime_contract.to_prompt_block()}\n\n"
         "Missing or invalid contract items:\n"
         f"{json.dumps(failed_items, ensure_ascii=False, indent=2)}\n\n"
+        "Repair history so far:\n"
+        f"{json.dumps(repair_history, ensure_ascii=False, indent=2)}\n\n"
         "Required functions to preserve:\n"
         f"{json.dumps(builder_runtime_contract.required_functions, ensure_ascii=False)}\n\n"
         "Targeted repair guidance:\n"
@@ -464,6 +669,39 @@ def _build_app_validation_repair_prompt(
         f"content_filename: {content_filename}\n\n"
         "Previous invalid app_source:\n"
         f"{invalid_source}"
+    )
+
+
+def _is_repair_friendly_error(error: InvalidAppSourceError) -> bool:
+    contract_items = error.contract_items or [error.message]
+    return error.code in REPAIR_FRIENDLY_CODES and len(contract_items) <= 2
+
+
+def _repair_stop_reason(
+    previous_error: InvalidAppSourceError,
+    current_error: InvalidAppSourceError,
+) -> str:
+    previous_items = previous_error.contract_items or [previous_error.message]
+    current_items = current_error.contract_items or [current_error.message]
+    if current_error.code == previous_error.code:
+        return f"same validation error code repeated ({current_error.code})"
+    if current_items == previous_items:
+        return "contract items did not change between repair attempts"
+    return ""
+
+
+def _format_repair_history_entry(
+    *,
+    attempt_number: int,
+    error: InvalidAppSourceError,
+    status: str,
+    note: str,
+) -> str:
+    contract_items = ", ".join(error.contract_items or []) or "none"
+    label = "initial_validation" if attempt_number == 0 else f"repair_attempt_{attempt_number}"
+    return (
+        f"{label}: {status} code={error.code}; "
+        f"contract_items=[{contract_items}]; note={note}"
     )
 
 

@@ -82,7 +82,23 @@ class PrototypeBuilderOutput(SchemaModel):
     )
     reflection_attempts: int = Field(
         default=0,
-        description="Number of patch/reflection attempts applied after local checks.",
+        description="Number of Builder repair attempts and downstream patch/reflection attempts.",
+    )
+    repair_attempted: bool = Field(
+        default=False,
+        description="Whether the Builder attempted at least one in-agent repair before fallback or success.",
+    )
+    initial_validation_error_code: str = Field(
+        default="",
+        description="First Builder validation error code observed before any repair attempt.",
+    )
+    repair_validation_error_code: str = Field(
+        default="",
+        description="Last Builder validation error code observed during repair attempts, if any.",
+    )
+    repair_history: list[str] = Field(
+        default_factory=list,
+        description="Short per-attempt repair history entries emitted by the Builder.",
     )
     builder_errors: list[str] = Field(
         default_factory=list,
