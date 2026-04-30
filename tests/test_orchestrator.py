@@ -15,6 +15,7 @@ from tests.fakes import FakeLLMClient
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 QUEST_V2_PACKAGE_DIR = REPO_ROOT / "inputs" / "260429_퀘스트_v2"
+CHATBOT_PACKAGE_DIR = REPO_ROOT / "inputs" / "260428_챗봇"
 
 
 def _build_coaching_spec():
@@ -478,6 +479,56 @@ def test_pipeline_runs_for_question_quest_v2_baseline(tmp_path: Path) -> None:
     assert builder_output["generation_mode"] == "llm_generated"
     assert builder_output["fallback_used"] is False
     assert "fallback_used: False" in final_summary
+    assert "fallback template 사용 여부: NO" in qa_report
+
+
+def test_pipeline_runs_for_question_coaching_chatbot_content_baseline(tmp_path: Path) -> None:
+    intake_result = load_input_intake(CHATBOT_PACKAGE_DIR)
+    assert intake_result.status == ValidationStatus.NEEDS_PLANNING_REVIEW
+    assert intake_result.implementation_spec is not None
+    implementation_spec = intake_result.implementation_spec
+    content_filename = build_content_filename(implementation_spec.service_name)
+    app_target_path = tmp_path / "outputs" / "question_coaching_chatbot" / "app.py"
+
+    pipeline = ImplementationPipeline(
+        llm_client=FakeLLMClient(),
+        spec_path=CHATBOT_PACKAGE_DIR,
+        workspace_dir=tmp_path,
+        output_dir=tmp_path / "outputs" / "question_coaching_chatbot",
+        implementation_spec=implementation_spec,
+        input_intake_result=intake_result,
+        app_target_path=app_target_path,
+        enable_streamlit_smoke=False,
+    )
+
+    pipeline.run()
+
+    output_dir = tmp_path / "outputs" / "question_coaching_chatbot"
+    payload = json.loads((output_dir / content_filename).read_text(encoding="utf-8"))
+    builder_output = json.loads(
+        (output_dir / "prototype_builder_output.json").read_text(encoding="utf-8")
+    )
+    orchestration_decision = json.loads(
+        (output_dir / "orchestration_decision.json").read_text(encoding="utf-8")
+    )
+    final_summary = (output_dir / "final_summary.md").read_text(encoding="utf-8")
+    qa_report = (output_dir / "qa_report.md").read_text(encoding="utf-8")
+
+    assert payload["interaction_mode"] == "coaching"
+    assert "/api/chat" in payload["interaction_mode_reason"]
+    assert payload["items"] == []
+    assert len(payload["interaction_units"]) >= 4
+    assert payload["interaction_validation"]["structure_valid"] is True
+    assert payload["interaction_validation"]["issues"] == []
+    assert builder_output["target_framework"] == "streamlit"
+    assert builder_output["generation_mode"] == "llm_generated"
+    assert builder_output["fallback_used"] is False
+    assert orchestration_decision["overall_status"] == "PASS"
+    assert orchestration_decision["retry_required"] is False
+    assert app_target_path.exists()
+    assert "interaction_mode=coaching" in final_summary
+    assert "fallback_used: False" in final_summary
+    assert "interaction_mode 확인: coaching" in qa_report
     assert "fallback template 사용 여부: NO" in qa_report
 
 

@@ -5,66 +5,69 @@
   },
   "implementation_targets": [
     "질문 입력 화면 구현",
-    "되묻기 화면 구현 (3가지 모드: need_specificity/need_context/need_purpose)",
-    "재요청 결과 화면 구현 (mode: completed)",
+    "3가지 되묻기 화면 구현",
+    "재요청 결과 화면 구현",
     "/api/chat 엔드포인트 개발",
-    "Streamlit 기반 UI/UX 구현"
+    "순차적 상태 전이 로직 구현"
   ],
   "file_plan": [
     {
-      "path": "app/main.py",
-      "purpose": "Streamlit 기반 UI/UX 및 상태 관리 구현",
+      "path": "src/pages/question_input.py",
+      "purpose": "학생 질문 입력 화면 구현",
       "producing_agent": "Spec Intake Agent"
     },
     {
-      "path": "app/api/chat.py",
-      "purpose": "/api/chat 엔드포인트 개발 및 질문 진단 로직 구현",
+      "path": "src/pages/specificity_check.py",
+      "purpose": "구체성(need_specificity) 되묻기 화면 구현",
       "producing_agent": "Spec Intake Agent"
     },
     {
-      "path": "app/static/question_flow.json",
-      "purpose": "상호작용 흐름 상태 정의 및 전이 규칙 관리",
+      "path": "src/pages/context_check.py",
+      "purpose": "맥락성(need_context) 되묻기 화면 구현",
       "producing_agent": "Spec Intake Agent"
     },
     {
-      "path": "app/templates/question_input.py",
-      "purpose": "질문 입력 화면 템플릿 구현",
+      "path": "src/pages/purpose_check.py",
+      "purpose": "목적성(need_purpose) 재요청 화면 구현",
       "producing_agent": "Spec Intake Agent"
     },
     {
-      "path": "app/templates/reask_screens.py",
-      "purpose": "3단계 되묻기 화면 템플릿 구현",
+      "path": "src/api/chat.py",
+      "purpose": "Streamlit 기반 /api/chat 엔드포인트 개발",
       "producing_agent": "Spec Intake Agent"
     },
     {
-      "path": "app/templates/completed.py",
-      "purpose": "재요청 결과 화면 템플릿 구현",
+      "path": "src/state_machine.py",
+      "purpose": "순차적 상태 전이 로직 구현",
+      "producing_agent": "Spec Intake Agent"
+    },
+    {
+      "path": "src/feedback_engine.py",
+      "purpose": "성장적 표현 기반 피드백 생성 엔진",
       "producing_agent": "Spec Intake Agent"
     }
   ],
   "quiz_generation_requirements": {
-    "quiz_type_count": 3,
-    "items_per_type": 5,
-    "total_items": 15,
-    "required_fields": [
-      "question_type",
-      "diagnosis_criteria",
-      "coaching_prompt",
-      "expected_outcome"
-    ]
+    "quiz_type_count": 0,
+    "items_per_type": 0,
+    "total_items": 0,
+    "required_fields": []
   },
   "app_constraints": [
-    "Streamlit 프레임워크 기반 구현 필수",
-    "상태 전이: awaiting_input → diagnosing → need_specificity/need_context/need_purpose → completed",
-    "질문 진단 로직은 구체성/맥락성/목적성 3가지 기준 충족",
-    "명세서와의 정합성 검증 필수",
-    "UI/UX는 학습자 및 교육자 친화적 설계"
+    "AI 사용법 강의 콘텐츠 배제",
+    "한 번에 하나의 피드백 요소만 표시",
+    "평가적 표현 사용 금지(학생 위축 방지)",
+    "4가지 원칙(답 미제공, 순차적 보완, 즉시 진행, 자기 수정 우선) 강제 적용",
+    "Streamlit 프레임워크 기반 구현",
+    "상태 전이: awaiting_input → diagnosing → need_specificity → need_context → need_purpose → completed"
   ],
   "test_strategy": [
-    "상태 전이 테스트: 모든 가능한 경로 검증",
-    "질문 진단 로직 테스트: 학습 목표(구체성/맥락성/목적성) 충족도 확인",
-    "API 통합 테스트: /api/chat 엔드포인트 응답 검증",
-    "UI/UX 테스트: Streamlit 프레임워크와의 기술적 정합성 검증",
-    "명세서 충돌 검증: 모든 구현 항목이 명세서와 일치하는지 확인"
+    "피드백이 한 번에 한 요소만 지적하는지 검증",
+    "성장적 표현 사용 여부 확인(평가적 표현 배제)",
+    "순차적 상태 전이 로직 정확성 검증",
+    "4가지 원칙과의 정합성 검토",
+    "각 상태 전이 시 필요한 데이터 전달 검증",
+    "피드백 표현식의 교육적 적절성 평가",
+    "API 엔드포인트 응답 시간 및 형식 검증"
   ]
 }

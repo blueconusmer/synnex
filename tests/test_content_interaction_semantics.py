@@ -286,6 +286,188 @@ def test_coaching_mode_uses_interaction_units_as_primary_contract() -> None:
     assert "diagnosis_criteria" in result.evaluation_rules
 
 
+def test_question_word_does_not_trigger_quest_quiz_marker_for_chatbot_service() -> None:
+    spec_intake_output = SpecIntakeOutput.model_validate(
+        {
+            "team_identity": "교육 서비스 구현 전문 AI Agent 팀",
+            "service_summary": "Question Coaching Chatbot은 질문 입력과 되묻기로 개선 방향을 제안한다.",
+            "normalized_requirements": ["/api/chat", "질문 입력", "되묻기", "coaching"],
+            "delivery_expectations": ["interaction_units 생성"],
+            "acceptance_focus": ["interaction_mode가 quiz로 오판되지 않아야 한다."],
+        }
+    )
+    requirement_mapping_output = RequirementMappingOutput.model_validate(
+        {
+            "implementation_targets": ["chatbot interaction flow"],
+            "file_plan": [],
+            "quiz_generation_requirements": {
+                "quiz_type_count": 0,
+                "items_per_type": 0,
+                "total_items": 0,
+                "required_fields": [],
+            },
+            "app_constraints": ["질문 입력 -> 진단 -> 되묻기 -> 결과"],
+            "test_strategy": ["interaction validator"],
+        }
+    )
+    implementation_spec = ImplementationSpec(
+        source_path=str(REPO_ROOT / "inputs" / "260428_챗봇"),
+        service_name="Question Coaching Chatbot",
+        target_framework="streamlit",
+        team_identity="교육 서비스 구현 전문 AI Agent 팀",
+        service_purpose="질문 입력을 받아 진단과 되묻기로 개선 방향을 제안하는 챗봇 코칭 서비스",
+        target_users=["중학생"],
+        learning_goals=["구체성", "맥락성", "목적성"],
+        core_features=["need_specificity", "need_context", "need_purpose", "completed"],
+        total_count=4,
+        items_per_type=0,
+        content_interaction_direction=["/api/chat", "awaiting_input", "diagnosing", "completed"],
+        excluded_scope=[],
+        expected_outputs=["질문 입력 화면", "되묻기 화면", "재요청 결과 화면"],
+        acceptance_criteria=["interaction_units가 유효해야 한다."],
+        constraints=[],
+        content_distribution={
+            "need_specificity": 1,
+            "need_context": 1,
+            "need_purpose": 1,
+            "completed": 1,
+        },
+    )
+    content_output = ContentInteractionOutput.model_validate(
+        {
+            "service_summary": "Question Coaching Chatbot interaction flow.",
+            "interaction_units": [
+                {
+                    "unit_id": "chat_input",
+                    "interaction_type": "free_text_input",
+                    "title": "질문 입력",
+                    "learner_action": "질문을 입력한다.",
+                    "system_response": "입력된 질문을 진단한다.",
+                    "input_format": "free_text",
+                    "next_step": "chat_feedback",
+                    "metadata": {"purpose": "user_input"},
+                },
+                {
+                    "unit_id": "chat_feedback",
+                    "interaction_type": "coaching_feedback",
+                    "title": "개선 피드백",
+                    "system_response": "부족한 요소 하나만 짚어 준다.",
+                    "next_step": "END",
+                    "metadata": {"diagnosis_criteria": ["구체성", "맥락성", "목적성"]},
+                },
+            ],
+            "flow_notes": ["질문 입력 -> 코칭 피드백"],
+        }
+    )
+
+    client = ScriptedContentClient(initial_content_output=content_output)
+    result = run_content_interaction_agent(
+        ContentInteractionInput(
+            spec_intake_output=spec_intake_output,
+            requirement_mapping_output=requirement_mapping_output,
+            implementation_spec=implementation_spec,
+        ),
+        client,
+    )
+
+    assert result.interaction_mode == "coaching"
+    assert "coaching markers detected" in result.interaction_mode_reason
+    assert "quest" not in result.interaction_mode_reason
+    assert result.interaction_validation is not None
+    assert result.interaction_validation.structure_valid is True
+    assert result.semantic_validation is None
+
+
+def test_non_quiz_content_types_prefer_coaching_over_incidental_quiz_words() -> None:
+    spec_intake_output = SpecIntakeOutput.model_validate(
+        {
+            "team_identity": "교육 서비스 구현 전문 AI Agent 팀",
+            "service_summary": "질문 코칭 챗봇은 정답을 바로 주지 않고 되묻기로 질문 개선을 돕는다.",
+            "normalized_requirements": ["정답 직접 제공 금지", "질문 입력", "되묻기", "/api/chat"],
+            "delivery_expectations": ["interaction_units 생성"],
+            "acceptance_focus": ["non-quiz content types면 coaching으로 해석되어야 한다."],
+        }
+    )
+    requirement_mapping_output = RequirementMappingOutput.model_validate(
+        {
+            "implementation_targets": ["chatbot coaching flow"],
+            "file_plan": [],
+            "quiz_generation_requirements": {
+                "quiz_type_count": 0,
+                "items_per_type": 0,
+                "total_items": 0,
+                "required_fields": [],
+            },
+            "app_constraints": ["정답 설명 대신 질문 개선 코칭"],
+            "test_strategy": ["interaction validator"],
+        }
+    )
+    implementation_spec = ImplementationSpec(
+        source_path=str(REPO_ROOT / "inputs" / "260428_챗봇"),
+        service_name="Question Coaching Chatbot",
+        target_framework="streamlit",
+        team_identity="교육 서비스 구현 전문 AI Agent 팀",
+        service_purpose="되묻기와 진단으로 질문을 개선하는 챗봇",
+        target_users=["중학생"],
+        learning_goals=["구체성", "맥락성", "목적성"],
+        core_features=["need_specificity", "need_context", "need_purpose", "completed"],
+        total_count=4,
+        items_per_type=0,
+        content_interaction_direction=["/api/chat", "awaiting_input", "diagnosing", "completed"],
+        excluded_scope=[],
+        expected_outputs=["질문 입력 화면", "되묻기 화면", "재요청 결과 화면"],
+        acceptance_criteria=["interaction_units가 유효해야 한다."],
+        constraints=[],
+        content_distribution={
+            "need_specificity": 1,
+            "need_context": 1,
+            "need_purpose": 1,
+            "completed": 1,
+        },
+    )
+    content_output = ContentInteractionOutput.model_validate(
+        {
+            "service_summary": "질문 코칭 챗봇 interaction flow.",
+            "interaction_units": [
+                {
+                    "unit_id": "chat_input",
+                    "interaction_type": "free_text_input",
+                    "title": "질문 입력",
+                    "learner_action": "질문을 입력한다.",
+                    "system_response": "입력된 질문을 진단한다.",
+                    "input_format": "free_text",
+                    "next_step": "chat_feedback",
+                    "metadata": {"purpose": "user_input"},
+                },
+                {
+                    "unit_id": "chat_feedback",
+                    "interaction_type": "coaching_feedback",
+                    "title": "개선 피드백",
+                    "system_response": "부족한 요소 하나만 짚어 준다.",
+                    "next_step": "END",
+                    "metadata": {"diagnosis_criteria": ["구체성", "맥락성", "목적성"]},
+                },
+            ],
+            "flow_notes": ["질문 입력 -> 코칭 피드백"],
+        }
+    )
+
+    client = ScriptedContentClient(initial_content_output=content_output)
+    result = run_content_interaction_agent(
+        ContentInteractionInput(
+            spec_intake_output=spec_intake_output,
+            requirement_mapping_output=requirement_mapping_output,
+            implementation_spec=implementation_spec,
+        ),
+        client,
+    )
+
+    assert result.interaction_mode == "coaching"
+    assert "non-quiz content types" in result.interaction_mode_reason
+    assert result.interaction_validation is not None
+    assert result.interaction_validation.structure_valid is True
+
+
 def test_conflicting_mode_markers_fall_back_to_general_when_units_are_valid() -> None:
     spec_intake_output = SpecIntakeOutput.model_validate(
         {

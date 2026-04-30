@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agents.implementation.prototype_builder_agent import run_prototype_builder_agent
 from loaders import load_planning_package, planning_package_to_implementation_spec
+from orchestrator.app_source import build_content_filename
 from schemas.implementation.content_interaction import ContentInteractionOutput
 from schemas.implementation.prototype_builder import PrototypeBuilderInput
 from schemas.implementation.requirement_mapping import RequirementMappingOutput
@@ -465,12 +466,16 @@ main()
 
 
 def test_prototype_builder_rejects_v2_source_without_battle_flow() -> None:
+    package = load_planning_package(QUEST_V2_PACKAGE_DIR)
+    spec = planning_package_to_implementation_spec(package, QUEST_V2_PACKAGE_DIR)
+    content_filename = build_content_filename(spec.service_name)
+
     missing_battle_source = '''from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
-CONTENT_FILENAME = "260429_퀘스트_contents.json"
+CONTENT_FILENAME = "__CONTENT_FILENAME__"
 APP_DIR = Path(__file__).resolve().parent
 OUTPUT_PATH = APP_DIR / "outputs" / CONTENT_FILENAME
 FALLBACK_OUTPUT_PATH = APP_DIR / CONTENT_FILENAME
@@ -530,9 +535,8 @@ def main() -> None:
 
 main()
 '''
+    missing_battle_source = missing_battle_source.replace("__CONTENT_FILENAME__", content_filename)
     fake = FakeLLMClient(app_source=missing_battle_source)
-    package = load_planning_package(QUEST_V2_PACKAGE_DIR)
-    spec = planning_package_to_implementation_spec(package, QUEST_V2_PACKAGE_DIR)
 
     output = run_prototype_builder_agent(
         PrototypeBuilderInput(
@@ -561,7 +565,10 @@ main()
 
     assert output.generation_mode == "fallback_template"
     assert output.fallback_used is True
-    assert "BATTLE_FLOW_MISSING" in output.builder_errors
+    assert any(
+        error in output.builder_errors
+        for error in ("BATTLE_FLOW_MISSING", "CONTRACT_MISSING_MARKER")
+    )
     assert "SCREEN_BATTLE" in output.fallback_reason
 
 

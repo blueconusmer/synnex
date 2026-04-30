@@ -258,6 +258,7 @@ def _resolve_service_name(input_model: ContentInteractionInput) -> str:
 
 def _infer_interaction_mode(input_model: ContentInteractionInput) -> tuple[str, str]:
     implementation_spec = input_model.implementation_spec
+    content_types = implementation_spec.core_features if implementation_spec is not None else []
     texts = [
         input_model.spec_intake_output.service_summary,
         *(input_model.spec_intake_output.normalized_requirements or []),
@@ -275,13 +276,20 @@ def _infer_interaction_mode(input_model: ContentInteractionInput) -> tuple[str, 
         )
 
     joined = " ".join(texts).lower()
-    quiz_hits = [marker for marker in QUIZ_MODE_MARKERS if marker.lower() in joined]
-    coaching_hits = [marker for marker in COACHING_MODE_MARKERS if marker.lower() in joined]
+    quiz_hits = _collect_mode_marker_hits(joined, QUIZ_MODE_MARKERS)
+    coaching_hits = _collect_mode_marker_hits(joined, COACHING_MODE_MARKERS)
+    content_type_profile = _classify_content_type_profile(content_types)
 
     if quiz_hits and not coaching_hits:
         return "quiz", f"quiz markers detected: {', '.join(quiz_hits[:5])}"
     if coaching_hits and not quiz_hits:
         return "coaching", f"coaching markers detected: {', '.join(coaching_hits[:5])}"
+    if coaching_hits and content_type_profile == "non_quiz":
+        return (
+            "coaching",
+            "coaching markers detected with non-quiz content types: "
+            f"coaching={', '.join(coaching_hits[:5])}; quiz={', '.join(quiz_hits[:3]) or 'none'}",
+        )
     if quiz_hits and coaching_hits:
         return (
             "general",
@@ -289,6 +297,43 @@ def _infer_interaction_mode(input_model: ContentInteractionInput) -> tuple[str, 
             f"quiz={', '.join(quiz_hits[:3])}; coaching={', '.join(coaching_hits[:3])}",
         )
     return "general", "no decisive quiz/coaching markers detected; using safe neutral general mode"
+
+
+def _collect_mode_marker_hits(text: str, markers: list[str]) -> list[str]:
+    hits: list[str] = []
+    for marker in markers:
+        lowered = marker.lower()
+        if _text_contains_mode_marker(text, lowered):
+            hits.append(marker)
+    return hits
+
+
+def _text_contains_mode_marker(text: str, marker: str) -> bool:
+    if re.fullmatch(r"[a-z0-9_/-]+", marker):
+        pattern = rf"(?<![a-z0-9_]){re.escape(marker)}(?![a-z0-9_])"
+        return re.search(pattern, text) is not None
+    return marker in text
+
+
+def _classify_content_type_profile(content_types: list[str]) -> str:
+    known_quiz_types = {
+        "multiple_choice",
+        "situation_card",
+        "question_improvement",
+        "battle",
+        "질문에서 빠진 요소 찾기",
+        "더 좋은 질문 고르기",
+        "모호한 질문 고치기",
+        "상황에 맞는 질문 만들기",
+    }
+    normalized = [content_type.strip() for content_type in content_types if content_type.strip()]
+    if not normalized:
+        return "unknown"
+    if all(content_type in known_quiz_types for content_type in normalized):
+        return "quiz"
+    if all(content_type not in known_quiz_types for content_type in normalized):
+        return "non_quiz"
+    return "mixed"
 
 
 def _normalize_interaction_metadata(output: ContentInteractionOutput) -> None:

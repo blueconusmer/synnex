@@ -1,0 +1,171 @@
+{
+  "agent": {
+    "english_name": "Content & Interaction Agent",
+    "korean_name": "교육 콘텐츠·상호작용 생성 Agent"
+  },
+  "service_summary": "Question Coaching Chatbot은 학생들이 AI에 질문할 때 주제/상황/원하는 답의 형태를 스스로 구조화하는 능력을 훈련시키는 서비스입니다. AI 사용법 교육이 아닌 질문 다듬기 경험을 제공하며, 순차적 보완 방식으로 한 번에 한 가지 요소(구체성/맥락성/목적성)씩 피드백을 제공합니다.",
+  "interaction_mode": "coaching",
+  "interaction_mode_reason": "coaching markers detected: 질문 입력, 되묻기, coaching, /api/chat",
+  "quiz_types": [],
+  "items": [],
+  "answer_key": {},
+  "explanations": {},
+  "learning_points": {},
+  "interaction_notes": [
+    "학습자는 순차적으로 구체성 → 맥락성 → 목적성 피드백을 받으며 질문을 개선합니다.",
+    "각 단계에서 시스템은 평가적 표현을 배제하고 성장적 표현을 사용합니다.",
+    "피드백은 한 번에 하나의 요소만 지적하며, 기준 충족 시 즉시 다음 단계로 이동합니다.",
+    "최종 단계에서 학습자는 완성된 질문을 AI에 보낼 수 있습니다."
+  ],
+  "interaction_units": [
+    {
+      "unit_id": "awaiting_input",
+      "interaction_type": "free_text_input",
+      "title": "질문 입력",
+      "learner_action": "학습자가 질문을 입력합니다.",
+      "system_response": "질문을 입력해 주세요. (예: '수학 문제를 푸는 방법을 알고 싶어요')",
+      "input_format": "free_text",
+      "feedback_rule": "",
+      "learning_dimension": "",
+      "next_step": "diagnosing",
+      "metadata": {
+        "state": "awaiting_input"
+      }
+    },
+    {
+      "unit_id": "diagnosing",
+      "interaction_type": "feedback",
+      "title": "진단 중",
+      "learner_action": "시스템이 질문을 분석합니다.",
+      "system_response": "질문을 분석하고 있습니다. 잠시만 기다려 주세요.",
+      "input_format": "",
+      "feedback_rule": "",
+      "learning_dimension": "",
+      "next_step": "need_specificity",
+      "metadata": {
+        "state": "diagnosing",
+        "feedback_type": "processing"
+      }
+    },
+    {
+      "unit_id": "need_specificity",
+      "interaction_type": "coaching_feedback",
+      "title": "구체성 피드백",
+      "learner_action": "학습자가 구체성 피드백을 확인합니다.",
+      "system_response": "질문이 조금 넓은 것 같아요. 어떤 구체적인 부분을 알고 싶으신가요? 예를 들어 '이차방정식의 근의 공식을 어떻게 사용하는지 알고 싶어요'처럼 자세히 설명해 주세요.",
+      "input_format": "",
+      "feedback_rule": "구체성 부족 시 성장적 표현 사용",
+      "learning_dimension": "구체성",
+      "next_step": "need_context",
+      "metadata": {
+        "state": "need_specificity",
+        "feedback_type": "specificity"
+      }
+    },
+    {
+      "unit_id": "need_context",
+      "interaction_type": "coaching_feedback",
+      "title": "맥락성 피드백",
+      "learner_action": "학습자가 맥락성 피드백을 확인합니다.",
+      "system_response": "좋아요! 이제 질문의 배경을 조금 더 알려주세요. 예를 들어 '학교 시험에서 이차방정식 문제가 나왔는데 어떻게 접근해야 할지 모르겠어요'처럼 상황을 설명해 주시면 더 정확한 도움을 드릴 수 있어요.",
+      "input_format": "",
+      "feedback_rule": "맥락성 부족 시 성장적 표현 사용",
+      "learning_dimension": "맥락성",
+      "next_step": "need_purpose",
+      "metadata": {
+        "state": "need_context",
+        "feedback_type": "context"
+      }
+    },
+    {
+      "unit_id": "need_purpose",
+      "interaction_type": "coaching_feedback",
+      "title": "목적성 피드백",
+      "learner_action": "학습자가 목적성 피드백을 확인합니다.",
+      "system_response": "거의 다 됐어요! 마지막으로 이 질문을 통해 얻고 싶은 것이 무엇인지 알려주세요. 예를 들어 '이차방정식 문제 풀이 단계를 시각적으로 이해하고 싶어요'처럼 원하는 답변 형태를 말씀해 주시면 더욱 완벽한 질문을 만들 수 있어요.",
+      "input_format": "",
+      "feedback_rule": "목적성 부족 시 성장적 표현 사용",
+      "learning_dimension": "목적성",
+      "next_step": "completed",
+      "metadata": {
+        "state": "need_purpose",
+        "feedback_type": "purpose"
+      }
+    },
+    {
+      "unit_id": "completed",
+      "interaction_type": "feedback",
+      "title": "완료",
+      "learner_action": "학습자가 완성된 질문을 확인합니다.",
+      "system_response": "훌륭해요! 이제 질문을 AI에 보내보세요. 더욱 명확하고 효과적인 답변을 받을 수 있을 거예요.",
+      "input_format": "",
+      "feedback_rule": "",
+      "learning_dimension": "",
+      "next_step": "END",
+      "metadata": {
+        "state": "completed",
+        "feedback_type": "completion"
+      }
+    }
+  ],
+  "flow_notes": [
+    "학습자는 순차적으로 구체성 → 맥락성 → 목적성 피드백을 받으며 질문을 개선합니다.",
+    "각 단계에서 시스템은 평가적 표현을 배제하고 성장적 표현을 사용합니다.",
+    "피드백은 한 번에 하나의 요소만 지적하며, 기준 충족 시 즉시 다음 단계로 이동합니다.",
+    "최종 단계에서 학습자는 완성된 질문을 AI에 보낼 수 있습니다."
+  ],
+  "evaluation_rules": {
+    "feedback_sequence": [
+      "need_specificity",
+      "need_context",
+      "need_purpose"
+    ],
+    "feedback_type_per_step": {
+      "need_specificity": "구체성",
+      "need_context": "맥락성",
+      "need_purpose": "목적성"
+    },
+    "growth_expressions": [
+      "좋아요!",
+      "훌륭해요!",
+      "거의 다 됐어요!",
+      "조금 더 자세히 설명해 주세요"
+    ],
+    "evaluation_criteria": {
+      "specificity": "질문이 구체적인 주제/대상을 포함하는지",
+      "context": "질문이 발생 배경/상황을 설명하는지",
+      "purpose": "질문이 원하는 답변 형태를 명시하는지"
+    },
+    "transition_rules": {
+      "awaiting_input": "diagnosing",
+      "diagnosing": "need_specificity",
+      "need_specificity": "need_context",
+      "need_context": "need_purpose",
+      "need_purpose": "completed"
+    },
+    "mode": "coaching",
+    "diagnosis_criteria": [
+      "구체성",
+      "맥락성",
+      "목적성"
+    ],
+    "completion_rule": "next_step가 END에 도달하면 세션을 종료한다.",
+    "feedback_types": {
+      "feedback": "정답/해설/결과에 대한 일반 피드백",
+      "coaching_feedback": "사용자 자유 입력을 바탕으로 개선 방향을 제안하는 코칭형 피드백"
+    }
+  },
+  "semantic_validation": null,
+  "interaction_validation": {
+    "interaction_mode": "coaching",
+    "mode_inference_reason": "coaching markers detected: 질문 입력, 되묻기, coaching, /api/chat",
+    "unit_count": 6,
+    "unit_type_counts": {
+      "free_text_input": 1,
+      "feedback": 2,
+      "coaching_feedback": 3
+    },
+    "structure_valid": true,
+    "issues": []
+  }
+}
