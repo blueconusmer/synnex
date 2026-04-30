@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agents.implementation.prototype_builder_agent import run_prototype_builder_agent
+from agents.implementation.prototype_builder_agent import (
+    _build_builder_runtime_contract,
+    run_prototype_builder_agent,
+)
 from loaders import load_input_intake, load_planning_package, planning_package_to_implementation_spec
 from orchestrator.app_source import build_content_filename
 from schemas.implementation.content_interaction import ContentInteractionOutput
@@ -202,6 +205,55 @@ def test_prototype_builder_materializes_llm_generated_coaching_app_without_legac
     assert "SCREEN_FOLLOW_UP" in source
     assert "SCREEN_RESULT" in source
     assert "SCREEN_ERROR" in source
+
+
+def test_general_mode_without_items_does_not_force_coaching_runtime_contract() -> None:
+    fake = FakeLLMClient()
+    intake_result = load_input_intake(CHATBOT_PACKAGE_DIR)
+    assert intake_result.implementation_spec is not None
+    spec = intake_result.implementation_spec
+    content_output = ContentInteractionOutput.model_validate(
+        {
+            "service_summary": "generic interaction service",
+            "interaction_mode": "general",
+            "interaction_mode_reason": "generic fallback",
+            "items": [],
+            "interaction_units": [
+                {
+                    "unit_id": "u1",
+                    "interaction_type": "display_content",
+                    "title": "intro",
+                    "learner_action": "",
+                    "system_response": "show intro",
+                    "input_format": "",
+                    "feedback_rule": "",
+                    "learning_dimension": "",
+                    "next_step": "END",
+                    "metadata": {},
+                }
+            ],
+            "flow_notes": ["generic interaction flow"],
+            "evaluation_rules": {"mode": "general"},
+        }
+    )
+
+    contract = _build_builder_runtime_contract(
+        input_model=PrototypeBuilderInput(
+            spec_intake_output=fake.generate_json(prompt="", response_model=SpecIntakeOutput),
+            requirement_mapping_output=fake.generate_json(
+                prompt="",
+                response_model=RequirementMappingOutput,
+            ),
+            content_interaction_output=content_output,
+            implementation_spec=spec,
+        ),
+        content_filename=build_content_filename(spec.service_name),
+        package_context={},
+    )
+
+    assert "api_chat_submit" not in contract.required_functions
+    assert "SCREEN_FOLLOW_UP" not in contract.required_screen_constants
+    assert "SCREEN_MULTIPLE_CHOICE_RESULT" in contract.required_screen_constants
 
 
 def test_prototype_builder_uses_fallback_when_llm_call_fails() -> None:

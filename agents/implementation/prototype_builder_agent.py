@@ -854,7 +854,7 @@ def _build_builder_runtime_contract(
         quest_sequence = [value for value in quest_sequence if value]
 
     uses_interaction_units_runtime = (
-        interaction_mode in {"coaching", "general"}
+        interaction_mode == "coaching"
         and not input_model.content_interaction_output.items
     )
     if uses_interaction_units_runtime:
